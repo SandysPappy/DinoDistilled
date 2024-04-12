@@ -127,7 +127,7 @@ class CIFAR10Dataset(Dataset):
         metric_logger = utils.MetricLogger(delimiter="  ")
         features = None
         # for samples, index in metric_logger.log_every(data_loader, 10):
-        for EEG,labels,image, index, Image_features in metric_logger.log_every(data_loader, 10):
+        for Image_features,labels,image, index  in metric_logger.log_every(data_loader, 10):
             samples = image
             samples = samples.cuda(non_blocking=True)
             index = index.cuda(non_blocking=True)

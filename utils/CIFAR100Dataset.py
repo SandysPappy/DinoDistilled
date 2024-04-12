@@ -38,7 +38,6 @@ class CIFAR100Dataset(Dataset):
         self.class_str_to_id = {}
         self.image_features= []
         self.labels = []
-        self.image_features =[]
 
         for _, index in self.dataset:
             label = string_classes[index]
@@ -127,7 +126,7 @@ class CIFAR100Dataset(Dataset):
         metric_logger = utils.MetricLogger(delimiter="  ")
         features = None
         # for samples, index in metric_logger.log_every(data_loader, 10):
-        for EEG,labels,image, index, Image_features in metric_logger.log_every(data_loader, 10):
+        for Image_features,labels,image, index in metric_logger.log_every(data_loader, 10):
             samples = image
             samples = samples.cuda(non_blocking=True)
             index = index.cuda(non_blocking=True)
@@ -182,7 +181,7 @@ class CIFAR100Dataset(Dataset):
     
     def __getitem__(self, idx):
         image, label =  self.dataset[idx]
-        # Image_features = []
+        Image_features = []
 
         LabelClassName = self.class_id_to_str[label] 
         LabelClasId = self.class_str_to_id[LabelClassName]

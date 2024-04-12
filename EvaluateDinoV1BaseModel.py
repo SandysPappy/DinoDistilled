@@ -45,7 +45,7 @@ if __name__=="__main__":
                         default=100,
                         help='Number of epochs to run trainer.')
     parser.add_argument('--batch_size',
-                        type=int, default=8,
+                        type=int, default=4,
                         help='Batch size. Must divide evenly into the dataset sizes.')
     parser.add_argument('--log_dir',
                         type=str,
@@ -87,7 +87,8 @@ if __name__=="__main__":
     SEED_FOR_RANDOM_SPLIT = 43
 
 
-    Datasets_To_test = ["caltech101", "cifar10", "cifar100", "chestxray"]
+    # Datasets_To_test = ["caltech101", "cifar10", "cifar100", "chestxray"]
+    Datasets_To_test = ["cifar100", "cifar10", "chestxray"]
     # dinov1_model = initDinoV1Model(model_to_load=FLAGS.dino_base_model_weights,FLAGS=FLAGS,checkpoint_key="teacher")
     dinov1_model = initDinoV1Model(model_to_load=FLAGS.dino_custom_model_weights,FLAGS=FLAGS,checkpoint_key="teacher")
 
@@ -143,7 +144,7 @@ if __name__=="__main__":
         for i in range(len(dataset)):
             gallery_features.append(dataset.image_features[i])
         for i in range(len(test_dataset)):
-            query_features.append(test_dataset.image_features[i]["eeg"])
+            query_features.append(test_dataset.image_features[i])
 
         gallery_features = torch.from_numpy(np.array(gallery_features))
         query_features = torch.from_numpy(np.array(query_features))
