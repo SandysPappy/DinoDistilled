@@ -52,6 +52,8 @@ class ChestXRayDataset(Dataset):
         for key,val in labels.items():
             self.class_str_to_id[key] = val
 
+        self.isDataTransformed = False
+
     
     @torch.no_grad()
     def extract_features(self,model, data_loader, use_cuda=True, multiscale=False):
@@ -59,6 +61,8 @@ class ChestXRayDataset(Dataset):
         features = None
         # for samples, index in metric_logger.log_every(data_loader, 10):
         for Image_features,labels,image, index in metric_logger.log_every(data_loader, 10):
+            if image is None:
+                continue
             samples = image
             samples = samples.cuda(non_blocking=True)
             index = index.cuda(non_blocking=True)
@@ -134,21 +138,25 @@ class ChestXRayDataset(Dataset):
             tuple: (Image_features,{"ClassName": LabelClassName, "ClassId": Image_features},image, idx)
         """
 
-        image, LabelClassId, Image_features = None, None, None
+        image, LabelClassId, Image_features = [], [], []
 
 
-        Img = self.getOriginalImage(idx)
+        image = self.getOriginalImage(idx)
+        if image is not None:
 
-        label = self.labels[idx]
-        LabelClassName = self.class_id_to_str[label] 
-        LabelClassId = self.class_str_to_id[LabelClassName]
+            label = self.labels[idx]
+            LabelClassName = self.class_id_to_str[label] 
+            LabelClassId = self.class_str_to_id[LabelClassName]
 
-        if self.img_preprocessing_fn is not None:
-            image = self.img_preprocessing_fn(image)
-        
-        if self.isDataTransformed:
-            Image_features = self.image_features[idx]
-        
-        return Image_features,{"ClassName": LabelClassName, "ClassId": LabelClassId},image, idx
+            if self.img_preprocessing_fn is not None:
+                image = self.img_preprocessing_fn(image)
+            
+            if self.isDataTransformed:
+                Image_features = self.image_features[idx]
+            
+            return Image_features,{"ClassName": LabelClassName, "ClassId": LabelClassId},image, idx
+
+        else:
+            print(f"image path: {self.getImagePath(idx)} is None")
 
     

@@ -88,7 +88,7 @@ if __name__=="__main__":
 
 
     # Datasets_To_test = ["caltech101", "cifar10", "cifar100", "chestxray"]
-    Datasets_To_test = ["cifar100", "cifar10", "chestxray"]
+    Datasets_To_test = ["chestxray", "cifar100", "cifar10"]
     # dinov1_model = initDinoV1Model(model_to_load=FLAGS.dino_base_model_weights,FLAGS=FLAGS,checkpoint_key="teacher")
     dinov1_model = initDinoV1Model(model_to_load=FLAGS.dino_custom_model_weights,FLAGS=FLAGS,checkpoint_key="teacher")
 
