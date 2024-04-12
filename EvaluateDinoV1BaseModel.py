@@ -1,7 +1,8 @@
 from utils.Caltech101Dataset import Caltech101Dataset
 from utils.CIFAR100Dataset import CIFAR100Dataset
 from utils.CIFAR10Dataset import CIFAR10Dataset
-
+from utils.ChestXRayDataset import ChestXRayDataset
+from utils import utils
 from utils.DinoModel import DinoModel, dino_args
 import torch
 import argparse
@@ -44,7 +45,7 @@ if __name__=="__main__":
                         default=100,
                         help='Number of epochs to run trainer.')
     parser.add_argument('--batch_size',
-                        type=int, default=1,
+                        type=int, default=8,
                         help='Batch size. Must divide evenly into the dataset sizes.')
     parser.add_argument('--log_dir',
                         type=str,
@@ -58,6 +59,10 @@ if __name__=="__main__":
                         type=str,
                         default="./models/pretrains/dino_deitsmall8_pretrain_full_checkpoint.pth",
                         help='dino based model weights')
+    parser.add_argument('--dino_custom_model_weights',
+                        type=str,
+                        default="./weights/dinoxray/checkpoint.pth",
+                        help='dino based model weights')
     parser.add_argument('--search_gallery',
                         type=str,
                         default="train",
@@ -66,28 +71,40 @@ if __name__=="__main__":
                         type=int,
                         default=5,
                         help='Top-k paramter, defaults to 5')
+    parser.add_argument('--seed', default=0, type=int, help='Random seed.')
+    parser.add_argument('--num_workers', default=4, type=int, help='Number of data loading workers per GPU.')
+    parser.add_argument("--dist_url", default="env://", type=str, help="""url used to set up
+        distributed training; see https://pytorch.org/docs/stable/distributed.html""")
+    parser.add_argument("--local_rank", default=0, type=int, help="Please ignore and do not set this argument.")
 
     FLAGS = None
     FLAGS, unparsed = parser.parse_known_args()
     print(FLAGS)
 
+    utils.init_distributed_mode(args=FLAGS)
+
     TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL = 0.7
     SEED_FOR_RANDOM_SPLIT = 43
 
 
-    Datasets_To_test = ["caltech101", "cifar10", "cifar100"]
-    dinov1_model = initDinoV1Model(model_to_load=FLAGS.dino_base_model_weights,FLAGS=FLAGS,checkpoint_key="teacher")
+    Datasets_To_test = ["caltech101", "cifar10", "cifar100", "chestxray"]
+    # dinov1_model = initDinoV1Model(model_to_load=FLAGS.dino_base_model_weights,FLAGS=FLAGS,checkpoint_key="teacher")
+    dinov1_model = initDinoV1Model(model_to_load=FLAGS.dino_custom_model_weights,FLAGS=FLAGS,checkpoint_key="teacher")
 
+    
     for selectedDataset in Datasets_To_test:
         if selectedDataset=="caltech101" :
-            dataset = Caltech101Dataset(filter_label=None,images_path="./data/images/caltech/101_ObjectCategories",preprocessin_fn=dinov1_model.dinov1_transform,subset="train",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
-            test_dataset = Caltech101Dataset(filter_label=None,images_path="./data/images/caltech/101_ObjectCategories",preprocessin_fn=dinov1_model.dinov1_transform,subset="test",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
+            dataset = Caltech101Dataset(filter_label=None,images_path="./datasets/caltech101/101_ObjectCategories",preprocessin_fn=dinov1_model.dinov1_transform,subset="train",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
+            test_dataset = Caltech101Dataset(filter_label=None,images_path="./datasets/caltech101/101_ObjectCategories",preprocessin_fn=dinov1_model.dinov1_transform,subset="test",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
         elif selectedDataset=="cifar10":
             dataset = CIFAR10Dataset(root="./data/", preprocessin_fn=None,subset="train")
             test_dataset = CIFAR10Dataset(root="./data/", preprocessin_fn=None,subset="test")
         elif selectedDataset=="cifar100":
             dataset = CIFAR100Dataset(root="./data/", preprocessin_fn=None,subset="train")
             test_dataset = CIFAR100Dataset(root="./data/", preprocessin_fn=None,subset="test")
+        elif selectedDataset=="chestxray":
+            dataset = ChestXRayDataset(img_preprocessing_fn=dinov1_model.dinov1_transform,rootPath="./datasets/chest_xray/train")
+            test_dataset = ChestXRayDataset(img_preprocessing_fn=dinov1_model.dinov1_transform,rootPath="./datasets/chest_xray/test")
 
         
         output_dir = f"{FLAGS.log_dir}/Dataset_{selectedDataset}"
@@ -124,9 +141,9 @@ if __name__=="__main__":
         gallery_features = []
         query_features = []
         for i in range(len(dataset)):
-            gallery_features.append(dataset.subsetData[i]["eeg"])
+            gallery_features.append(dataset.image_features[i])
         for i in range(len(test_dataset)):
-            query_features.append(test_dataset.subsetData[i]["eeg"])
+            query_features.append(test_dataset.image_features[i]["eeg"])
 
         gallery_features = torch.from_numpy(np.array(gallery_features))
         query_features = torch.from_numpy(np.array(query_features))
@@ -172,7 +189,7 @@ if __name__=="__main__":
             test_intlabel = test_dataset.labels[query_idx]
             test_strlabel = test_dataset.class_id_to_str[test_intlabel]
 
-            test_eeg, test_label, test_image, test_idx, img_f = test_dataset[query_idx]
+            img_f, test_label, test_image, test_idx,  = test_dataset[query_idx]
             #originalImage = test_dataset.getOriginalImage(test_idx)
             originalImage = test_dataset.getImagePath(test_idx)
 
