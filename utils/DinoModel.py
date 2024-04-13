@@ -36,8 +36,10 @@ class dino_args:
 
 class DinoModel(nn.Module):
 
-    def __init__(self,args) -> None:
+    def __init__(self,args, use_only_backbone=False) -> None:
         super().__init__()
+
+        self.use_only_backbone = use_only_backbone
         
         # ============ building network ... ============
         if "vit" in args.arch:
@@ -70,12 +72,13 @@ class DinoModel(nn.Module):
         msg = self.backbone.load_state_dict(state_dict, strict=False)
         print('Pretrained weights found at {} and loaded with msg: {}'.format(args.pretrained_weights, msg))
 
-        self.head = DINOHead(self.backbone.embed_dim, out_dim=65536,use_bn=False)
-        msg = self.head.load_state_dict(state_dict, strict=False)
-        print('Pretrained weights for Dino Head found at {} and loaded with msg: {}'.format(args.pretrained_weights, msg))
-        if args.use_cuda:
-            self.head.cuda()
-        self.head.eval()
+        if not self.use_only_backbone:
+            self.head = DINOHead(self.backbone.embed_dim, out_dim=65536,use_bn=False)
+            msg = self.head.load_state_dict(state_dict, strict=False)
+            print('Pretrained weights for Dino Head found at {} and loaded with msg: {}'.format(args.pretrained_weights, msg))
+            if args.use_cuda:
+                self.head.cuda()
+            self.head.eval()
 
         self.dinov1_transform = pth_transforms.Compose([
             # pth_transforms.ToTensor(),    
@@ -89,6 +92,8 @@ class DinoModel(nn.Module):
         if transform_inputs:
             x = self.dinov1_transform(x)
         x = self.backbone(x)
+        if self.use_only_backbone:
+            return x
         if return_back_bone_only: 
             return x
         x = self.head(x)

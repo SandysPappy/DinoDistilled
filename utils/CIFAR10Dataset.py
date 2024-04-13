@@ -127,7 +127,7 @@ class CIFAR10Dataset(Dataset):
         metric_logger = utils.MetricLogger(delimiter="  ")
         features = None
         # for samples, index in metric_logger.log_every(data_loader, 10):
-        for Image_features,labels,image, index  in metric_logger.log_every(data_loader, 10):
+        for img_f,labels,image, index  in metric_logger.log_every(data_loader, 10):
             samples = image
             samples = samples.cuda(non_blocking=True)
             index = index.cuda(non_blocking=True)
@@ -170,7 +170,7 @@ class CIFAR10Dataset(Dataset):
                     features.index_copy_(0, index_all.cpu(), torch.cat(output_l).cpu())
         
         for f in features:
-            self.img_features.append(f.cpu().numpy())
+            self.image_features.append(f.cpu().numpy())
 
         self.isDataTransformed = True
         #return features
@@ -187,8 +187,8 @@ class CIFAR10Dataset(Dataset):
         LabelClassName = self.class_id_to_str[label] 
         LabelClasId = self.class_str_to_id[LabelClassName]
 
-        if self.isDataTransformed:
-            img_features = self.img_features[idx]
+        # if self.isDataTransformed:
+        #     img_features = self.image_features[idx]
 
         if len(self.image_features)==len(self):
             img_features = self.image_features[idx]

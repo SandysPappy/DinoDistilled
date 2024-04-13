@@ -23,12 +23,12 @@ class NpEncoder(json.JSONEncoder):
         return super(NpEncoder, self).default(obj)
     
 
-def initDinoV1Model(model_to_load, FLAGS, checkpoint_key="teacher"):
+def initDinoV1Model(model_to_load, FLAGS, checkpoint_key="teacher", use_back_bone_only=False):
     dino_args.pretrained_weights = model_to_load
     dino_args.output_dir = FLAGS.log_dir
     dino_args.checkpoint_key = checkpoint_key
     dino_args.use_cuda = torch.cuda.is_available()
-    dinov1_model = DinoModel(dino_args)
+    dinov1_model = DinoModel(dino_args, use_only_backbone=use_back_bone_only)
     dinov1_model.eval()
     return dinov1_model
 
@@ -88,9 +88,10 @@ if __name__=="__main__":
 
 
     # Datasets_To_test = ["caltech101", "cifar10", "cifar100", "chestxray"]
-    Datasets_To_test = ["chestxray", "cifar100", "cifar10"]
+    # Datasets_To_test = ["chestxray", "cifar100", "cifar10"]
+    Datasets_To_test = ["caltech101"]
     # dinov1_model = initDinoV1Model(model_to_load=FLAGS.dino_base_model_weights,FLAGS=FLAGS,checkpoint_key="teacher")
-    dinov1_model = initDinoV1Model(model_to_load=FLAGS.dino_custom_model_weights,FLAGS=FLAGS,checkpoint_key="teacher")
+    dinov1_model = initDinoV1Model(model_to_load=FLAGS.dino_custom_model_weights,FLAGS=FLAGS,checkpoint_key="teacher", use_back_bone_only=True)
 
     
     for selectedDataset in Datasets_To_test:
@@ -138,6 +139,10 @@ if __name__=="__main__":
 
         dataset.extract_features(dinov1_model,data_loader=data_loader_train)
         test_dataset.extract_features(dinov1_model,data_loader=data_loader_query)
+
+
+        print(f"Train : {len(dataset)}  features: {len(dataset.image_features)}")
+        print(f"Test : {len(test_dataset)}  features: {len(test_dataset.image_features)}")
 
         gallery_features = []
         query_features = []
