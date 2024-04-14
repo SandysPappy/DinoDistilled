@@ -10,6 +10,15 @@ import faiss
 import numpy as np
 import json
 import os
+import torchvision
+import torchvision.transforms as T
+import torch.distributed as dist
+from PIL import Image
+from TinyViT.data import build_transform
+from TinyViT.config import get_config
+from TinyViT.models import build_model
+from TinyViT.logger import create_logger
+from TinyViT.utils import load_checkpoint, load_pretrained, save_checkpoint
 
 class NpEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -72,7 +81,17 @@ if __name__=="__main__":
                         default="env://", 
                         type=str, 
                         help="""url used to set up distributed training; see https://pytorch.org/docs/stable/distributed.html""")
-
+    parser.add_argument("--local_rank", 
+                        default=0, 
+                        type=int, help="Please ignore and do not set this argument.")
+    parser.add_argument('--pretrained',
+                        type=str,
+                        default="./TinyViT/models/pretrained/tiny_vit_21m_22k_distill.pth",
+                        help='TinyViT pretrained weight')
+    parser.add_argument('--output',
+                        type=str,
+                        default="./TinyViT_log",
+                        help='TinyViT log output')
     FLAGS = None
     FLAGS, unparsed = parser.parse_known_args()
     print(FLAGS)
@@ -117,18 +136,42 @@ if __name__=="__main__":
 
 
         time_t0 = time.perf_counter()
-
+        '''
         dataset.extract_features(dinov1_model,data_loader=data_loader_train)
         #print(dataset.image_features)
        
         gallery_features = []
         for i in range(len(dataset)):
-            gallery_features.append(dataset.image_features)
+            gallery_features.append(dataset.image_features[i])
 
         gallery_features = torch.from_numpy(np.array(gallery_features))
 
         gallery_features = gallery_features.reshape(gallery_features.size(0), -1)
+        '''
+        config = get_config(FLAGS)
+        TinyViT_model = build_model(config)
 
-         
+        logger = create_logger(output_dir=config.OUTPUT,
+                           dist_rank=dist.get_rank(), name=f"{config.MODEL.NAME}")
+
+        load_pretrained(config, TinyViT_model, logger)
+        TinyViT_model.eval()
+
+        image = dataset[0][2]
+        toPIL = T.ToPILImage() 
+        image = toPIL(image)
+        transform = build_transform(is_train=False, config=config)
+        batch = transform(image)[None]
+
+        with torch.no_grad():
+            logits = TinyViT_model(batch)
+
+        probs = torch.softmax(logits, -1)
+        scores, inds = probs.topk(5, largest=True, sorted=True)
+        print('=' * 30)
+        for score, ind in zip(scores[0].numpy(), inds[0].numpy()):
+            print(f'{ind}: {score:.2f}')
 
 
+
+        
