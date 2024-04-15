@@ -153,8 +153,8 @@ if __name__=="__main__":
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
     ])
 
-    dataset = ChestXRayDataset(img_preprocessing_fn=transforms_efficientnet,rootPath="./datasets/chest_xray/train")
-    test_dataset = ChestXRayDataset(img_preprocessing_fn=transforms_efficientnet,rootPath="./datasets/chest_xray/test")
+    dataset = ChestXRayDataset(img_preprocessing_fn=transforms_efficientnet,rootPath=f"{FLAGS.dataset_root}/train")
+    test_dataset = ChestXRayDataset(img_preprocessing_fn=transforms_efficientnet,rootPath=f"{FLAGS.dataset_root}/test")
 
     # Reassign DINO features to dataset
     dataset.image_features = train_image_features 
