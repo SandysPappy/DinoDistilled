@@ -25,7 +25,7 @@ def initDinoV1Model(model_to_load, FLAGS, checkpoint_key="teacher", use_back_bon
 class StudentModel(nn.Module):
     def __init__(self, num_features=384):
         super(StudentModel, self).__init__()
-        self.efficientnet = models.efficientnet_b0(pretrained=False)
+        self.efficientnet = models.efficientnet_b0(weights=None)
         # self.efficientnet.classifier[-1].out_features = num_features
         self.efficientnet.classifier = torch.nn.Sequential(
             nn.Dropout(p=0.2, inplace=True),
@@ -100,6 +100,7 @@ if __name__=="__main__":
 
     utils.init_distributed_mode(args=FLAGS)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(device)
     os.makedirs(f"{FLAGS.log_dir}/output", exist_ok=True)
 
     TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL = 0.7
@@ -107,6 +108,7 @@ if __name__=="__main__":
 
     # Load DINOv1 model (you need to replace this with your own DINOv2 model)
     dinov1_model = initDinoV1Model(model_to_load=FLAGS.dino_custom_model_weights,FLAGS=FLAGS,checkpoint_key="teacher", use_back_bone_only=True)
+    dinov1_model.to(device)
 
     dataset = ChestXRayDataset(img_preprocessing_fn=dinov1_model.dinov1_transform,rootPath=f"{FLAGS.dataset_root}/train")
     test_dataset = ChestXRayDataset(img_preprocessing_fn=dinov1_model.dinov1_transform,rootPath=f"{FLAGS.dataset_root}/test")
@@ -203,6 +205,7 @@ if __name__=="__main__":
     best_val_loss = None
 
     TotalBatches = len(data_loader_train)/FLAGS.batch_size
+    student_model.to(device)
 
     for epoch in range(FLAGS.num_epochs):
         running_loss= 0.0
@@ -213,7 +216,7 @@ if __name__=="__main__":
             teacher_logits = img_f # pre exctracted features from dinov1
 
             # Forward pass with the student model
-            student_logits = student_model(image)
+            student_logits = student_model(image.to(device))
 
 
             #Soften the student logits by applying softmax first and log() second
@@ -225,7 +228,7 @@ if __name__=="__main__":
 
 
             # Calculate the true label loss
-            label_loss = ce_loss(student_logits, label)
+            label_loss = ce_loss(student_logits, label.to(device))
 
             # Weighted sum of the two losses
             loss = HyperParams.soft_target_loss_weight * soft_targets_loss + HyperParams.ce_loss_weight * label_loss
@@ -233,7 +236,7 @@ if __name__=="__main__":
             loss.backward()
             optimizer.step()
             running_loss += loss.item()
-            if TotalBatches % 10 == 0:
+            if batch_idx % 100 == 0:
                 print(f"EPOCH[{epoch}] Batch {batch_idx}, Loss: {loss.item()}")
         
         student_model.eval()
