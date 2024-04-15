@@ -73,6 +73,10 @@ if __name__=="__main__":
                         type=str,
                         default="./weights/dinoxray/checkpoint.pth",
                         help='dino based model weights')
+    parser.add_argument('--dataset_root',
+                        type=str,
+                        default="./datasets/chest_xray",
+                        help='dataset directory root')
     parser.add_argument('--search_gallery',
                         type=str,
                         default="train",
@@ -101,8 +105,8 @@ if __name__=="__main__":
     # Load DINOv1 model (you need to replace this with your own DINOv2 model)
     dinov1_model = initDinoV1Model(model_to_load=FLAGS.dino_custom_model_weights,FLAGS=FLAGS,checkpoint_key="teacher", use_back_bone_only=True)
 
-    dataset = ChestXRayDataset(img_preprocessing_fn=dinov1_model.dinov1_transform,rootPath="./datasets/chest_xray/train")
-    test_dataset = ChestXRayDataset(img_preprocessing_fn=dinov1_model.dinov1_transform,rootPath="./datasets/chest_xray/test")
+    dataset = ChestXRayDataset(img_preprocessing_fn=dinov1_model.dinov1_transform,rootPath=f"{FLAGS.dataset_root}/train")
+    test_dataset = ChestXRayDataset(img_preprocessing_fn=dinov1_model.dinov1_transform,rootPath=f"{FLAGS.dataset_root}/test")
 
     sampler = torch.utils.data.DistributedSampler(dataset, shuffle=False)
     data_loader_train = torch.utils.data.DataLoader(
