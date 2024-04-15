@@ -253,10 +253,10 @@ if __name__=="__main__":
             best_val_loss = current_test_loss
         else:
             if current_test_loss<best_val_loss:
-                torch.save(student_model.state_dict(), 'output/student_model_efficientnetb0_best_test_loss.pth')
+                torch.save(student_model.state_dict(), f"{FLAGS.log_dir}/output/student_model_efficientnetb0_best_test_loss.pth")
         
         print(f"EPOCH[{epoch}] Train loss: {current_train_loss} Test loss: {current_test_loss}")
 
     # Save the trained student model
-    torch.save(student_model.state_dict(), 'output/student_model_efficientnetb0_final.pth')
+    torch.save(student_model.state_dict(), f"{FLAGS.log_dir}/output/student_model_efficientnetb0_final.pth")
     print("Student model trained and saved.")
