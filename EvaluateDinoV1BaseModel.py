@@ -4,6 +4,7 @@ from utils.CIFAR10Dataset import CIFAR10Dataset
 from utils.ChestXRayDataset import ChestXRayDataset
 from utils import utils
 from utils.DinoModel import DinoModel, dino_args
+from utils.utils import NpEncoder
 import torch
 import argparse
 import time 
@@ -11,16 +12,6 @@ import faiss
 import numpy as np
 import json
 import os
-
-class NpEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, np.integer):
-            return int(obj)
-        if isinstance(obj, np.floating):
-            return float(obj)
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
-        return super(NpEncoder, self).default(obj)
     
 
 def initDinoV1Model(model_to_load, FLAGS, checkpoint_key="teacher", use_back_bone_only=False):

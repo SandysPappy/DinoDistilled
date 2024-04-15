@@ -10,10 +10,15 @@ import torch.distributed as dist
 class ChestXRayDataset(Dataset):
     """ ChestXRay dataset """
 
-    def __init__(self, img_preprocessing_fn, labels={ "NORMAL": 0 , "PNEUMONIA": 1}, rootPath="./datasets/chest_xray/train/", seed=123):
+    def __init__(self, img_preprocessing_fn, 
+                 labels={ "NORMAL": 0 , "PNEUMONIA": 1},
+                 rootPath="./datasets/chest_xray/train/", 
+                 seed=123,
+                 inference_mode=True):
         self.labels = []
         self.images = []
         self.image_features = []
+        self.inference_mode = inference_mode
 
         self.transform = transforms.Compose([ 
             # transforms.PILToTensor(),
@@ -154,9 +159,10 @@ class ChestXRayDataset(Dataset):
             if self.isDataTransformed:
                 Image_features = self.image_features[idx]
             
-            # return Image_features,{"ClassName": LabelClassName, "ClassId": LabelClassId},image, idx
-            return Image_features,LabelClassId,image, idx
-
+            if self.inference_mode:
+                return Image_features,{"ClassName": LabelClassName, "ClassId": LabelClassId},image, idx
+            else:
+                return Image_features,LabelClassId,image, idx
         else:
             print(f"image path: {self.getImagePath(idx)} is None")
 
