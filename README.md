@@ -9,3 +9,10 @@ conda env create -f environment.yml
 ```
 https://www.kaggle.com/code/ajaymin28/dinoxray-test-acc-95-5/output
 ```
+
+
+## DinoV1 distill on efficientnetB0 weights 
+
+```
+https://www.kaggle.com/code/ajaymin28/dinoxraydistilled
+```
