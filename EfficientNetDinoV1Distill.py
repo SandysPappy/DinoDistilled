@@ -220,8 +220,8 @@ if __name__=="__main__":
 
 
             #Soften the student logits by applying softmax first and log() second
-            soft_targets = nn.functional.softmax(teacher_logits / HyperParams.T, dim=-1)
-            soft_prob = nn.functional.log_softmax(student_logits / HyperParams.T, dim=-1)
+            soft_targets = nn.functional.softmax(teacher_logits / HyperParams.T, dim=-1).to(device)
+            soft_prob = nn.functional.log_softmax(student_logits / HyperParams.T, dim=-1).to(device)
 
             # Calculate the soft targets loss. Scaled by T**2 as suggested by the authors of the paper "Distilling the knowledge in a neural network"
             soft_targets_loss = torch.sum(soft_targets * (soft_targets.log() - soft_prob)) / soft_prob.size()[0] * (HyperParams.T**2)
