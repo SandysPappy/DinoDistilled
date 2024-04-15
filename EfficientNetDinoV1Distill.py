@@ -243,8 +243,8 @@ if __name__=="__main__":
        
         test_loss = 0.0
         for batch_idx, (img_f, label, image, idx) in enumerate(data_loader_test):
-            student_logits = student_model(image)
-            label_loss = ce_loss(student_logits, label)
+            student_logits = student_model(image.to(device))
+            label_loss = ce_loss(student_logits, label.to(device))
             test_loss += loss.item()
         
         current_test_loss = test_loss/len(data_loader_test)
