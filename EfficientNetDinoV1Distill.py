@@ -96,8 +96,11 @@ if __name__=="__main__":
     FLAGS, unparsed = parser.parse_known_args()
     print(FLAGS)
 
+    
+
     utils.init_distributed_mode(args=FLAGS)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    os.makedirs(f"{FLAGS.log_dir}/output", exist_ok=True)
 
     TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL = 0.7
     SEED_FOR_RANDOM_SPLIT = 43
@@ -196,7 +199,12 @@ if __name__=="__main__":
     optimizer = optim.Adam(student_model.parameters(), lr=HyperParams.learning_rate)
 
     # Training loop
-    for epoch in range(10):
+
+    best_val_loss = None
+
+    TotalBatches = len(data_loader_train)/FLAGS.batch_size
+
+    for epoch in range(FLAGS.num_epochs):
         running_loss= 0.0
         student_model.train()
         for batch_idx, (img_f, label, image, idx) in enumerate(data_loader_train):
@@ -225,7 +233,7 @@ if __name__=="__main__":
             loss.backward()
             optimizer.step()
             running_loss += loss.item()
-            if batch_idx % 100 == 0:
+            if TotalBatches % 10 == 0:
                 print(f"EPOCH[{epoch}] Batch {batch_idx}, Loss: {loss.item()}")
         
         student_model.eval()
@@ -235,11 +243,17 @@ if __name__=="__main__":
             student_logits = student_model(image)
             label_loss = ce_loss(student_logits, label)
             test_loss += loss.item()
-        print(f"EPOCH[{epoch}] Train loss: {running_loss/len(data_loader_train)} Test loss: {test_loss/len(data_loader_test)}")
+        
+        current_test_loss = test_loss/len(data_loader_test)
+        current_train_loss = running_loss/len(data_loader_train)
+        if best_val_loss is None:
+            best_val_loss = current_test_loss
+        else:
+            if current_test_loss<best_val_loss:
+                torch.save(student_model.state_dict(), 'output/student_model_efficientnetb0_best_test_loss.pth')
+        
+        print(f"EPOCH[{epoch}] Train loss: {current_train_loss} Test loss: {current_test_loss}")
 
-
-    
-    os.makedirs("output", exist_ok=True)
     # Save the trained student model
-    torch.save(student_model.state_dict(), 'output/student_model_efficientnetb0.pth')
+    torch.save(student_model.state_dict(), 'output/student_model_efficientnetb0_final.pth')
     print("Student model trained and saved.")
