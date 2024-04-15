@@ -154,7 +154,8 @@ class ChestXRayDataset(Dataset):
             if self.isDataTransformed:
                 Image_features = self.image_features[idx]
             
-            return Image_features,{"ClassName": LabelClassName, "ClassId": LabelClassId},image, idx
+            # return Image_features,{"ClassName": LabelClassName, "ClassId": LabelClassId},image, idx
+            return Image_features,LabelClassId,image, idx
 
         else:
             print(f"image path: {self.getImagePath(idx)} is None")

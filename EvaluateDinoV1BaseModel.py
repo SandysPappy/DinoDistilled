@@ -89,7 +89,7 @@ if __name__=="__main__":
 
     # Datasets_To_test = ["caltech101", "cifar10", "cifar100", "chestxray"]
     # Datasets_To_test = ["chestxray", "cifar100", "cifar10"]
-    Datasets_To_test = ["caltech101"]
+    Datasets_To_test = ["cifar10"]
     # dinov1_model = initDinoV1Model(model_to_load=FLAGS.dino_base_model_weights,FLAGS=FLAGS,checkpoint_key="teacher")
     dinov1_model = initDinoV1Model(model_to_load=FLAGS.dino_custom_model_weights,FLAGS=FLAGS,checkpoint_key="teacher", use_back_bone_only=True)
 
@@ -195,7 +195,7 @@ if __name__=="__main__":
             test_intlabel = test_dataset.labels[query_idx]
             test_strlabel = test_dataset.class_id_to_str[test_intlabel]
 
-            img_f, test_label, test_image, test_idx,  = test_dataset[query_idx]
+            img_f, test_label, test_image, test_idx = test_dataset[query_idx]
             #originalImage = test_dataset.getOriginalImage(test_idx)
             originalImage = test_dataset.getImagePath(test_idx)
 
