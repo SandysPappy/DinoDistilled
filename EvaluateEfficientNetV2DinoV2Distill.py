@@ -1,22 +1,71 @@
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import argparse
+from torchvision import datasets, transforms
+from torchvision import models
+from utils.DinoModel import DinoModel, dino_args
+from utils.ChestXRayDataset import ChestXRayDataset
 from utils.Caltech101Dataset import Caltech101Dataset
 from utils.CIFAR100Dataset import CIFAR100Dataset
 from utils.CIFAR10Dataset import CIFAR10Dataset
-from utils.ChestXRayDataset import ChestXRayDataset
 from utils import utils
 from utils.utils import NpEncoder
-from torchvision import transforms, datasets
-import torch
-import argparse
-import time 
-import faiss
-import numpy as np
-import json
+import time
 import os
+import json
+import numpy as np
+import faiss
+import timm
 
-def initDinoV2Model(model= "dinov2_vits14"):
-    dinov2_vits14 = torch.hub.load("facebookresearch/dinov2", model)
-    return dinov2_vits14
+def initDinoV1Model(model_to_load, FLAGS, checkpoint_key="teacher", use_back_bone_only=False):
+    dino_args.pretrained_weights = model_to_load
+    dino_args.output_dir = FLAGS.log_dir
+    dino_args.checkpoint_key = checkpoint_key
+    dino_args.use_cuda = torch.cuda.is_available()
+    dinov1_model = DinoModel(dino_args, use_only_backbone=use_back_bone_only)
+    dinov1_model.eval()
+    return dinov1_model
 
+# Define the student model for knowledge distillation
+class StudentModel(nn.Module):
+    def __init__(self, num_features=384):
+        super(StudentModel, self).__init__()
+        self.efficientnet = models.efficientnet_b0(weights=None)
+        # self.efficientnet.classifier[-1].out_features = num_features
+        self.efficientnet.classifier = torch.nn.Sequential(
+            nn.Dropout(p=0.2, inplace=True),
+            nn.Linear(in_features=1280, out_features=num_features, bias=True)
+        )
+        """
+        self.efficientnet.classifier =  Sequential(
+        (0): Dropout(p=0.2, inplace=True)
+        (1): Linear(in_features=1280, out_features=1000, bias=True) # Replaced 1000 by 384
+        )
+        """
+
+    def forward(self, x):
+        x = self.efficientnet(x)
+        return x
+
+# Define the student model for knowledge distillation
+class EfficientNetV2Embeddings(nn.Module):
+    def __init__(self, output_dim=384, dropout_rate=0.5):
+        super(EfficientNetV2Embeddings, self).__init__()
+        self.base_model = timm.create_model('efficientnetv2_rw_s', pretrained=True, features_only=True)
+        feature_dim = self.base_model.feature_info[-1]['num_chs']
+        self.batch_norm = nn.BatchNorm1d(feature_dim)
+        self.dropout = nn.Dropout(dropout_rate)
+        self.embedding_layer = nn.Linear(feature_dim, output_dim)
+
+    def forward(self, x):
+        features = self.base_model(x)[-1]
+        pooled_features = features.mean([2, 3])
+        norm_features = self.batch_norm(pooled_features)
+        dropped_out_features = self.dropout(norm_features)
+        embeddings = self.embedding_layer(dropped_out_features)
+        return embeddings
+    
 
 if __name__=="__main__":
 
@@ -48,6 +97,14 @@ if __name__=="__main__":
                         type=str,
                         default="./weights/dinoxray/checkpoint.pth",
                         help='dino based model weights')
+    parser.add_argument('--efficient_distilled_model_weights',
+                        type=str,
+                        default="./weights/best_model_epoch_15_effiv2.pth",
+                        help='efficient distilled model weights')
+    parser.add_argument('--dataset_root',
+                        type=str,
+                        default="./datasets/chest_xray",
+                        help='dataset directory root')
     parser.add_argument('--search_gallery',
                         type=str,
                         default="train",
@@ -62,45 +119,61 @@ if __name__=="__main__":
         distributed training; see https://pytorch.org/docs/stable/distributed.html""")
     parser.add_argument("--local_rank", default=0, type=int, help="Please ignore and do not set this argument.")
 
+
     FLAGS = None
     FLAGS, unparsed = parser.parse_known_args()
     print(FLAGS)
 
+    
+
     utils.init_distributed_mode(args=FLAGS)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(device)
+    os.makedirs(f"{FLAGS.log_dir}/output", exist_ok=True)
 
     TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL = 0.7
     SEED_FOR_RANDOM_SPLIT = 43
 
+    # Load DINOv1 model (you need to replace this with your own DINOv2 model)
+    # dinov1_model = initDinoV1Model(model_to_load=FLAGS.dino_custom_model_weights,FLAGS=FLAGS,checkpoint_key="teacher", use_back_bone_only=True)
+    # dinov1_model.to(device)
 
-    transform_image = transforms.Compose([
+    # Initialize the student model
+    student_model = EfficientNetV2Embeddings(output_dim=384)
+    # student_model = StudentModel(num_features=384)  # dinov1 small
+    student_model.to(device)
+
+    if os.path.exists(FLAGS.efficient_distilled_model_weights):
+        efficient_weights = torch.load(FLAGS.efficient_distilled_model_weights)
+        student_model.load_state_dict(state_dict=efficient_weights)
+        print(f"Weights loaded from: {FLAGS.efficient_distilled_model_weights}")
+    else:
+        print(f"[ERROR] Weights {FLAGS.efficient_distilled_model_weights} not found!!")
+
+
+    # Reinit dataset for EfficientNet
+    transforms_efficientnet = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Resize(256, antialias=True),       
+        transforms.Resize(256),       
         transforms.CenterCrop(224),  
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),  
     ])
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-
-    # Datasets_To_test = ["caltech101", "cifar10", "cifar100", "chestxray"]
-    Datasets_To_test = ["cifar100", "cifar10"]
-    # dinov1_model = initDinoV1Model(model_to_load=FLAGS.dino_base_model_weights,FLAGS=FLAGS,checkpoint_key="teacher")
-    # dinov1_model = initDinoV1Model(model_to_load=FLAGS.dino_custom_model_weights,FLAGS=FLAGS,checkpoint_key="teacher")
-    dinov2_model = initDinoV2Model(model="dinov2_vits14").to(device)
-
     
+    Datasets_To_test = ["caltech101", "cifar10", "cifar100", "chestxray"]
+
     for selectedDataset in Datasets_To_test:
         if selectedDataset=="caltech101" :
-            dataset = Caltech101Dataset(filter_label=None,images_path="./datasets/caltech101/101_ObjectCategories",preprocessin_fn=transform_image,subset="train",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
-            test_dataset = Caltech101Dataset(filter_label=None,images_path="./datasets/caltech101/101_ObjectCategories",preprocessin_fn=transform_image,subset="test",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
+            dataset = Caltech101Dataset(filter_label=None,images_path="./datasets/caltech101/101_ObjectCategories",preprocessin_fn=transforms_efficientnet,subset="train",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
+            test_dataset = Caltech101Dataset(filter_label=None,images_path="./datasets/caltech101/101_ObjectCategories",preprocessin_fn=transforms_efficientnet,subset="test",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
         elif selectedDataset=="cifar10":
-            dataset = CIFAR10Dataset(root="./data/", preprocessin_fn=transform_image,subset="train")
-            test_dataset = CIFAR10Dataset(root="./data/", preprocessin_fn=transform_image,subset="test")
+            dataset = CIFAR10Dataset(root="./data/", preprocessin_fn=transforms_efficientnet,subset="train")
+            test_dataset = CIFAR10Dataset(root="./data/", preprocessin_fn=transforms_efficientnet,subset="test")
         elif selectedDataset=="cifar100":
-            dataset = CIFAR100Dataset(root="./data/", preprocessin_fn=transform_image,subset="train")
-            test_dataset = CIFAR100Dataset(root="./data/", preprocessin_fn=transform_image,subset="test")
+            dataset = CIFAR100Dataset(root="./data/", preprocessin_fn=transforms_efficientnet,subset="train")
+            test_dataset = CIFAR100Dataset(root="./data/", preprocessin_fn=transforms_efficientnet,subset="test")
         elif selectedDataset=="chestxray":
-            dataset = ChestXRayDataset(img_preprocessing_fn=transform_image,rootPath="./datasets/chest_xray/train")
-            test_dataset = ChestXRayDataset(img_preprocessing_fn=transform_image,rootPath="./datasets/chest_xray/test")
+            dataset = ChestXRayDataset(img_preprocessing_fn=transforms_efficientnet,rootPath=f"{FLAGS.dataset_root}/train")
+            test_dataset = ChestXRayDataset(img_preprocessing_fn=transforms_efficientnet,rootPath=f"{FLAGS.dataset_root}/test")
 
         
         output_dir = f"{FLAGS.log_dir}/Dataset_{selectedDataset}"
@@ -109,7 +182,6 @@ if __name__=="__main__":
         with open(f'{output_dir}/commandline_args.txt', 'w') as f:
             json.dump(FLAGS.__dict__, f, indent=2)
 
-    
         sampler = torch.utils.data.DistributedSampler(dataset, shuffle=False)
         data_loader_train = torch.utils.data.DataLoader(
             dataset,
@@ -130,8 +202,11 @@ if __name__=="__main__":
 
         time_t0 = time.perf_counter()
 
-        dataset.extract_features(dinov2_model,data_loader=data_loader_train)
-        test_dataset.extract_features(dinov2_model,data_loader=data_loader_query)
+        dataset.extract_features(student_model,data_loader=data_loader_train)
+        test_dataset.extract_features(student_model,data_loader=data_loader_query)
+
+        print(f"Train : {len(dataset)}  features: {len(dataset.image_features)}")
+        print(f"Test : {len(test_dataset)}  features: {len(test_dataset.image_features)}")
 
         gallery_features = []
         query_features = []
@@ -184,7 +259,7 @@ if __name__=="__main__":
             test_intlabel = test_dataset.labels[query_idx]
             test_strlabel = test_dataset.class_id_to_str[test_intlabel]
 
-            img_f, test_label, test_image, test_idx,  = test_dataset[query_idx]
+            img_f, test_label, test_image, test_idx = test_dataset[query_idx]
             #originalImage = test_dataset.getOriginalImage(test_idx)
             originalImage = test_dataset.getImagePath(test_idx)
 
