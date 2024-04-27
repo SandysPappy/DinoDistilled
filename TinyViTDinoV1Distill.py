@@ -10,6 +10,7 @@ import time
 import os
 from TinyViT.models.tiny_vit import _create_tiny_vit 
 
+from myutils.ChestXRayDataset import ChestXRayDataset
 # Path to the dataset
 dataset_path = "datasets/caltech101/101_ObjectCategories"
 
@@ -40,7 +41,7 @@ def initDinoV1Model(model_to_load, FLAGS, checkpoint_key="teacher"):
     dino_args.output_dir = FLAGS.log_dir
     dino_args.checkpoint_key = checkpoint_key
     dino_args.use_cuda = torch.cuda.is_available()
-    dinov1_model = DinoModel(dino_args)
+    dinov1_model = DinoModel(dino_args, use_only_backbone=True)
     dinov1_model.eval()
     return dinov1_model
 
@@ -70,6 +71,11 @@ if __name__ == "__main__":
                         type=str,
                         default="./models/pretrains/dino_deitsmall8_pretrain_full_checkpoint.pth",
                         help='dino based model weights') 
+    parser.add_argument('--dataset_root',
+                        type=str,
+                        default="./datasets/chest_xray",
+                        help='dataset directory root')
+
     FLAGS, unparsed = parser.parse_known_args()
     print(FLAGS)
 
@@ -80,13 +86,17 @@ if __name__ == "__main__":
     dinov1_model = initDinoV1Model(model_to_load=FLAGS.dino_base_model_weights,FLAGS=FLAGS,checkpoint_key="teacher")
     dinov1_model = dinov1_model.to(device)
     dinov1_model.eval()
-    '''
+    
     if os.path.exists(FLAGS.dino_custom_model_weights):
         state_dict = torch.load(FLAGS.dino_custom_model_weights, map_location=device)
         dinov1_model.load_state_dict(state_dict,strict=False)
     '''
     dataset = Caltech101Dataset(filter_label=None, preprocessin_fn=dinov1_model.dinov1_transform, subset="train", images_path=dataset_path, random_seed=43)
     test_dataset = Caltech101Dataset(filter_label=None, preprocessin_fn=dinov1_model.dinov1_transform, subset="test", images_path=dataset_path, random_seed=43)
+    '''
+
+    dataset = ChestXRayDataset(img_preprocessing_fn=dinov1_model.dinov1_transform,rootPath=f"{FLAGS.dataset_root}/train")
+    test_dataset = ChestXRayDataset(img_preprocessing_fn=dinov1_model.dinov1_transform,rootPath=f"{FLAGS.dataset_root}/test")  
 
     sampler = torch.utils.data.DistributedSampler(dataset, shuffle=False)
     data_loader_train = torch.utils.data.DataLoader(
@@ -116,13 +126,22 @@ if __name__ == "__main__":
     train_image_features = dataset.image_features
     test_image_features = test_dataset.image_features
 
+    print("len:", len(train_image_features))
+    print("image feature size:", train_image_features[0].shape)
+    print(train_image_features[0])
+
     transforms_tinyvit = transforms.Compose([
         transforms.Resize((224, 224), interpolation=transforms.InterpolationMode.BICUBIC),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
+    '''
     dataset = Caltech101Dataset(filter_label=None, preprocessin_fn=transforms_tinyvit,subset="train", images_path=dataset_path, random_seed=43)
     test_dataset = Caltech101Dataset(filter_label=None, preprocessin_fn=transforms_tinyvit,subset="test", images_path=dataset_path, random_seed=43)
+    '''
+    
+    dataset = ChestXRayDataset(img_preprocessing_fn=transforms_tinyvit,rootPath=f"{FLAGS.dataset_root}/train", inference_mode=False)
+    test_dataset = ChestXRayDataset(img_preprocessing_fn=transforms_tinyvit,rootPath=f"{FLAGS.dataset_root}/test", inference_mode=False)
 
     # Reassigning DINO features to dataset
     dataset.image_features = train_image_features 
@@ -156,7 +175,7 @@ if __name__ == "__main__":
         soft_target_loss_weight=0.25
         ce_loss_weight=0.75
 
-    student_model = StudentTinyViT(num_classes=65536, pretrained=True).to(device)  # Ensure the model is created with the pretrained flag
+    student_model = StudentTinyViT(num_classes=384, pretrained=True).to(device)  # Ensure the model is created with the pretrained flag
     student_model =student_model.to(device)
     ce_loss = nn.CrossEntropyLoss()
     optimizer = optim.Adam(student_model.parameters(), lr=HyperParams.learning_rate)
@@ -169,15 +188,20 @@ if __name__ == "__main__":
         student_model.train()
         for batch_idx, (img_f, labels, images, idx) in enumerate(data_loader_train):
             images = images.to(device)  # Move images to the correct device
-            labels = labels["ClassId"]
+            #labels = labels["ClassId"]
             labels = labels.to(device)  # Move labels to the correct device
-            
+            #labels = labels.reshape(4,1)
+
             optimizer.zero_grad()
             # Assuming teacher_logits are included in your dataset and handled correctly
             # If teacher_logits are not part of your dataset, you will need to adjust this
             teacher_logits = img_f
 
             student_logits = student_model(images)
+                
+            #print("teacher logit:", teacher_logits.size())
+            #print("student logit:", student_logits.size())
+            #print("label size:", labels.size())
 
             #Soften the student logits by applying softmax first and log() second
             soft_targets = nn.functional.softmax(teacher_logits / HyperParams.T, dim=-1).to(device)
@@ -194,13 +218,13 @@ if __name__ == "__main__":
             running_loss += loss.item()
             if batch_idx % 100 == 0:
                 print(f"EPOCH[{epoch}] Batch {batch_idx}, Loss: {loss.item()}")
-
+            
         student_model.eval()
 
         test_loss = 0.0
         for batch_idx, (img_f, labels, images, idx) in enumerate(data_loader_test):
             images = images.to(device)
-            labels = labels["ClassId"]
+            #labels = labels["ClassId"]
             labels = labels.to(device)
             student_logits = student_model(images)
             label_loss = ce_loss(student_logits, labels)

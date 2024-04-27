@@ -8,7 +8,7 @@ from myutils import utils
 import time
 import os
 from TinyViT.models.tiny_vit import _create_tiny_vit 
-
+import numpy as np
 # Path to the dataset
 dataset_path = "datasets/caltech101/101_ObjectCategories"
 
@@ -40,6 +40,45 @@ def get_dino_transforms():
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
+
+class HyperParams:
+    learning_rate=0.001
+    T=0.5
+    soft_target_loss_weight=0.25
+    ce_loss_weight=0.75
+    warmup_teacher_temp = 1.8
+    teacher_temp = 0.7
+    warmup_teacher_temp_epochs = 50
+
+class FeatureDistributionLoss(nn.Module):
+    def __init__(self, nepochs, warmup_teacher_temp, teacher_temp, warmup_teacher_temp_epochs):
+        super().__init__()
+        self.mse = nn.MSELoss()
+        self.ce_loss = nn.CrossEntropyLoss()
+        self.teacher_temp_schedule = np.concatenate((
+            np.linspace(warmup_teacher_temp,
+                        teacher_temp, warmup_teacher_temp_epochs),
+            np.ones(nepochs - warmup_teacher_temp_epochs) * teacher_temp
+        ))
+
+    def forward(self, student_outputs, teacher_outputs, epoch, labels):
+        overall_loss = 0
+
+        HyperParams.T = self.teacher_temp_schedule[epoch]
+
+        soft_targets = nn.functional.softmax(teacher_outputs / HyperParams.T, dim=-1).to("cuda")
+        soft_prob = nn.functional.log_softmax(student_outputs / HyperParams.T, dim=-1).to("cuda")
+
+        # Calculate the soft targets loss. Scaled by T**2 as suggested by the authors of the paper "Distilling the knowledge in a neural network"
+        soft_targets_loss = torch.sum(soft_targets * (soft_targets.log() - soft_prob)) / soft_prob.size()[0] * (HyperParams.T**2)
+
+        #overall_loss += soft_targets_loss
+
+        # ce_loss = nn.functional.cross_entropy(soft_targets, soft_prob)
+        label_loss = self.ce_loss(student_outputs, labels)
+        loss = HyperParams.soft_target_loss_weight * soft_targets_loss + HyperParams.ce_loss_weight * label_loss
+
+        return loss, HyperParams.T
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Efficient DINO')
@@ -105,6 +144,11 @@ if __name__ == "__main__":
     train_image_features = dataset.image_features
     test_image_features = test_dataset.image_features
 
+    #print("len:", len(train_image_features))
+    #print("feature shape:", train_image_features[0].shape)
+    #print(train_image_features[0])
+    
+
     transforms_tinyvit = transforms.Compose([
         transforms.Resize((224, 224), interpolation=transforms.InterpolationMode.BICUBIC),
         transforms.ToTensor(),
@@ -138,17 +182,22 @@ if __name__ == "__main__":
         pin_memory=True,
         drop_last=False,
     )
-    
+    '''
     class HyperParams:
         learning_rate=0.001
         T=2
         soft_target_loss_weight=0.25
         ce_loss_weight=0.75
+    '''
 
+    criterion = FeatureDistributionLoss(nepochs=FLAGS.num_epochs, 
+                                        warmup_teacher_temp=HyperParams.warmup_teacher_temp, 
+                                        teacher_temp=HyperParams.teacher_temp,
+                                        warmup_teacher_temp_epochs=HyperParams.warmup_teacher_temp_epochs)
     student_model = StudentTinyViT(num_classes=384, pretrained=True).to(device)  # Ensure the model is created with the pretrained flag
     student_model =student_model.to(device)
     ce_loss = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(student_model.parameters(), lr=HyperParams.learning_rate)
+    optimizer = optim.AdamW(student_model.parameters(), lr=HyperParams.learning_rate)
 
     best_val_loss = None
 
@@ -169,20 +218,21 @@ if __name__ == "__main__":
             student_logits = student_model(images)
 
             #Soften the student logits by applying softmax first and log() second
-            soft_targets = nn.functional.softmax(teacher_logits / HyperParams.T, dim=-1).to(device)
-            soft_prob = nn.functional.log_softmax(student_logits / HyperParams.T, dim=-1).to(device) 
+            #soft_targets = nn.functional.softmax(teacher_logits / HyperParams.T, dim=-1).to(device)
+            #soft_prob = nn.functional.log_softmax(student_logits / HyperParams.T, dim=-1).to(device) 
 
             # Calculate the soft targets loss. Scaled by T**2 as suggested by the authors of the paper "Distilling the knowledge in a neural network"
-            soft_targets_loss = torch.sum(soft_targets * (soft_targets.log() - soft_prob)) / soft_prob.size()[0] * (HyperParams.T**2)
+            #soft_targets_loss = torch.sum(soft_targets * (soft_targets.log() - soft_prob)) / soft_prob.size()[0] * (HyperParams.T**2)
 
-            label_loss = ce_loss(student_logits, labels)
-            loss = HyperParams.soft_target_loss_weight * soft_targets_loss + HyperParams.ce_loss_weight * label_loss
-             # Update this if you use soft targets
+            #label_loss = ce_loss(student_logits, labels)
+            #loss = HyperParams.soft_target_loss_weight * soft_targets_loss + HyperParams.ce_loss_weight * label_loss
+            loss, T= criterion(student_logits, teacher_logits, epoch, labels)
+            # Update this if you use soft targets
             loss.backward()
             optimizer.step()
             running_loss += loss.item()
             if batch_idx % 100 == 0:
-                print(f"EPOCH[{epoch}] Batch {batch_idx}, Loss: {loss.item()}")
+                print(f"EPOCH[{epoch}] Batch {batch_idx}, Loss: {loss.item()}, T: {T}")
 
         student_model.eval()
 

@@ -10,7 +10,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.model_selection import StratifiedShuffleSplit
 import time
 from tqdm import tqdm
-from utils import utils
+from myutils import utils
 import torch.distributed as dist
 from torchvision.datasets import CIFAR10
 from torchvision.transforms import ToTensor

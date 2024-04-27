@@ -19,6 +19,7 @@ from TinyViT.config import get_config
 from TinyViT.models import build_model
 from TinyViT.logger import create_logger
 from TinyViT.utils import load_checkpoint, load_pretrained, save_checkpoint
+from time import process_time 
 
 class NpEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -107,8 +108,8 @@ if __name__=="__main__":
 
     for selectedDataset in Datasets_To_test:
         if selectedDataset=="caltech101" :
-            dataset = Caltech101Dataset(filter_label=None,images_path="./data/caltech-101/101_ObjectCategories",preprocessin_fn=dinov1_model.dinov1_transform,subset="train",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
-            test_dataset = Caltech101Dataset(filter_label=None,images_path="./data/caltech-101/101_ObjectCategories",preprocessin_fn=dinov1_model.dinov1_transform,subset="test",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
+            dataset = Caltech101Dataset(filter_label=None,images_path="./datasets/caltech101/101_ObjectCategories",preprocessin_fn=dinov1_model.dinov1_transform,subset="train",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
+            test_dataset = Caltech101Dataset(filter_label=None,images_path="./datasets/caltech101/101_ObjectCategories",preprocessin_fn=dinov1_model.dinov1_transform,subset="test",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
         elif selectedDataset=="cifar10":
             dataset = CIFAR10Dataset(root="./data/", preprocessin_fn=None,subset="train")
             test_dataset = CIFAR10Dataset(root="./data/", preprocessin_fn=None,subset="test")
@@ -156,16 +157,26 @@ if __name__=="__main__":
 
         load_pretrained(config, TinyViT_model, logger)
         TinyViT_model.eval()
-
+ 
         image = dataset[0][2]
         toPIL = T.ToPILImage() 
         image = toPIL(image)
         transform = build_transform(is_train=False, config=config)
         batch = transform(image)[None]
 
+        t1_start = process_time()
         with torch.no_grad():
-            logits = TinyViT_model(batch)
-
+            for i in range(3):
+                image = dataset[i][2]
+                toPIL = T.ToPILImage()
+                image = toPIL(image)
+                transform = build_transform(is_train=False, config=config)
+                batch = transform(image)[None]
+                if i == 2:
+                    t1_start = process_time()    
+                logits = TinyViT_model(batch)
+        t1_stop = process_time() 
+        print("Elapsed time during the whole program in seconds:", t1_stop-t1_start) 
         probs = torch.softmax(logits, -1)
         scores, inds = probs.topk(5, largest=True, sorted=True)
         print('=' * 30)
