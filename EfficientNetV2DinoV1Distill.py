@@ -218,7 +218,7 @@ if __name__=="__main__":
             # Forward pass with the student model
             student_logits = student_model(image.to(device))
 
-            print(f"Student: {student_logits.size()} Teacher: {teacher_logits.size()} Label: {label.size()}")
+            # print(f"Student: {student_logits.size()} Teacher: {teacher_logits.size()} Label: {label.size()}")
 
 
             #Soften the student logits by applying softmax first and log() second
