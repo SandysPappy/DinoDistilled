@@ -130,6 +130,8 @@ if __name__ == "__main__":
     if os.path.exists(FLAGS.dino_custom_model_weights):
         state_dict = torch.load(FLAGS.dino_custom_model_weights, map_location=device)
         dinov1_model.load_state_dict(state_dict,strict=False)
+
+    os.makedirs(FLAGS.log_dir, exist_ok=True)
     
     # dataset = Caltech101Dataset(filter_label=None, preprocessin_fn=dinov1_model.dinov1_transform, subset="train", images_path=dataset_path, random_seed=43)
     # test_dataset = Caltech101Dataset(filter_label=None, preprocessin_fn=dinov1_model.dinov1_transform, subset="test", images_path=dataset_path, random_seed=43)
@@ -218,7 +220,7 @@ if __name__ == "__main__":
                                         teacher_temp=HyperParams.teacher_temp,
                                         warmup_teacher_temp_epochs=HyperParams.warmup_teacher_temp_epochs)
 
-    student_model = StudentTinyViT(num_classes=384, pretrained=True).to(device)  # Ensure the model is created with the pretrained flag
+    student_model = StudentTinyViT(num_classes=384, pretrained=False).to(device)  # Ensure the model is created with the pretrained flag
     student_model =student_model.to(device)
     ce_loss = nn.CrossEntropyLoss()
     optimizer = optim.AdamW(student_model.parameters(), lr=HyperParams.learning_rate)
