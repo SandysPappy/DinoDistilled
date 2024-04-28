@@ -4,6 +4,9 @@ import torch.optim as optim
 import argparse
 from torchvision import datasets, transforms
 from myutils.Caltech101Dataset import Caltech101Dataset
+from myutils.CIFAR10Dataset import CIFAR10Dataset
+from myutils.CIFAR100Dataset import CIFAR100Dataset
+from myutils.ChestXRayDataset import ChestXRayDataset
 from myutils import utils
 import time
 import os
@@ -113,8 +116,10 @@ if __name__ == "__main__":
         dinov2_model.load_state_dict(state_dict,strict=False)
     '''
     dinov2_transform = get_dino_transforms()
-    dataset = Caltech101Dataset(filter_label=None, preprocessin_fn=dinov2_transform, subset="train", images_path=dataset_path, random_seed=43)
-    test_dataset = Caltech101Dataset(filter_label=None, preprocessin_fn=dinov2_transform, subset="test", images_path=dataset_path, random_seed=43)
+    # dataset = Caltech101Dataset(filter_label=None, preprocessin_fn=dinov2_transform, subset="train", images_path=dataset_path, random_seed=43)
+    # test_dataset = Caltech101Dataset(filter_label=None, preprocessin_fn=dinov2_transform, subset="test", images_path=dataset_path, random_seed=43)
+    dataset = CIFAR10Dataset(preprocessin_fn=dinov2_transform, subset="train")
+    test_dataset = CIFAR10Dataset(preprocessin_fn=dinov2_transform, subset="test")
 
     sampler = torch.utils.data.DistributedSampler(dataset, shuffle=False)
     data_loader_train = torch.utils.data.DataLoader(
@@ -154,8 +159,12 @@ if __name__ == "__main__":
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
-    dataset = Caltech101Dataset(filter_label=None, preprocessin_fn=transforms_tinyvit,subset="train", images_path=dataset_path, random_seed=43)
-    test_dataset = Caltech101Dataset(filter_label=None, preprocessin_fn=transforms_tinyvit,subset="test", images_path=dataset_path, random_seed=43)
+    # dataset = Caltech101Dataset(filter_label=None, preprocessin_fn=transforms_tinyvit,subset="train", images_path=dataset_path, random_seed=43)
+    # test_dataset = Caltech101Dataset(filter_label=None, preprocessin_fn=transforms_tinyvit,subset="test", images_path=dataset_path, random_seed=43)
+    dataset = CIFAR10Dataset(preprocessin_fn=transforms_tinyvit, subset="train")
+    test_dataset = CIFAR10Dataset(preprocessin_fn=transforms_tinyvit, subset="test")
+
+
 
     # Reassigning DINO features to dataset
     dataset.image_features = train_image_features 
