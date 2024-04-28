@@ -282,12 +282,12 @@ if __name__ == "__main__":
             best_val_loss = current_test_loss
         else:
             if current_test_loss<best_val_loss:
-                torch.save(student_model.state_dict(), f"{FLAGS.log_dir}/output/chestxray_v1student_model_tinyvit_best_test_loss.pth")
+                torch.save(student_model.state_dict(), f"{FLAGS.log_dir}/chestxray_v1student_model_tinyvit_best_test_loss.pth")
 
         print(f"EPOCH[{epoch}] Train loss: {running_loss / len(data_loader_train)} Test loss: {test_loss / len(data_loader_test)}")
 
     os.makedirs("output", exist_ok=True)
-    torch.save(student_model.state_dict(), f"{FLAGS.log_dir}/output/chestxray_v1student_model_tinyvit.pth")
+    torch.save(student_model.state_dict(), f"{FLAGS.log_dir}/chestxray_v1student_model_tinyvit.pth")
     print("Student model trained and saved.")
 
 
