@@ -84,7 +84,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser('Efficient DINO')
     parser.add_argument('--learning_rate', type=float, default=0.01, help='Initial learning rate.')
     parser.add_argument('--num_epochs', type=int, default=100, help='Number of epochs to run trainer.')
-    parser.add_argument('--batch_size', type=int, default=4, help='Batch size. Must divide evenly into the dataset sizes.')
+    parser.add_argument('--batch_size', type=int, default=24, help='Batch size. Must divide evenly into the dataset sizes.')
     parser.add_argument('--log_dir', type=str, default='DINO', help='Directory to put logging.')
     parser.add_argument('--mode', type=str, default="train", help='Type of mode: train or test')
     parser.add_argument('--dino_custom_model_weights', type=str, default="./weights/dinoxray/checkpoint.pth", help='DINO custom model weights')
