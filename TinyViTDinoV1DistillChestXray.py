@@ -3,10 +3,10 @@ import torch.nn as nn
 import torch.optim as optim
 import argparse
 from torchvision import datasets, transforms
-from myutils.Caltech101Dataset import Caltech101Dataset
-from myutils.ChestXRayDataset import ChestXRayDataset
-from myutils import utils
-from myutils.DinoModel import DinoModel, dino_args
+from utils.Caltech101Dataset import Caltech101Dataset
+from utils.ChestXRayDataset import ChestXRayDataset
+from utils import utils
+from utils.DinoModel import DinoModel, dino_args
 import time
 import os
 # from TinyViT.models.tiny_vit import _create_tiny_vit 
