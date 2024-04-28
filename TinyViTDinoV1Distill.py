@@ -9,8 +9,8 @@ from myutils.DinoModel import DinoModel, dino_args
 import time
 import os
 from TinyViT.models.tiny_vit import _create_tiny_vit 
-
-from myutils.ChestXRayDataset import ChestXRayDataset
+import numpy as np
+#from myutils.ChestXRayDataset import ChestXRayDataset
 # Path to the dataset
 dataset_path = "datasets/caltech101/101_ObjectCategories"
 
@@ -53,11 +53,50 @@ def get_dino_transforms():
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
+class HyperParams:
+    learning_rate=0.001
+    T=0.5
+    soft_target_loss_weight=0.25
+    ce_loss_weight=0.75
+    warmup_teacher_temp = 1.8
+    teacher_temp = 0.7
+    warmup_teacher_temp_epochs = 50
+
+class FeatureDistributionLoss(nn.Module):
+    def __init__(self, nepochs, warmup_teacher_temp, teacher_temp, warmup_teacher_temp_epochs):
+        super().__init__()
+        self.mse = nn.MSELoss()
+        self.ce_loss = nn.CrossEntropyLoss()
+        self.teacher_temp_schedule = np.concatenate((
+            np.linspace(warmup_teacher_temp,
+                        teacher_temp, warmup_teacher_temp_epochs),
+            np.ones(nepochs - warmup_teacher_temp_epochs) * teacher_temp
+        ))
+
+    def forward(self, student_outputs, teacher_outputs, epoch, labels):
+        overall_loss = 0
+
+        HyperParams.T = self.teacher_temp_schedule[epoch]
+
+        soft_targets = nn.functional.softmax(teacher_outputs / HyperParams.T, dim=-1).to("cuda")
+        soft_prob = nn.functional.log_softmax(student_outputs / HyperParams.T, dim=-1).to("cuda")
+
+        # Calculate the soft targets loss. Scaled by T**2 as suggested by the authors of the paper "Distilling the knowledge in a neural  network"
+        soft_targets_loss = torch.sum(soft_targets * (soft_targets.log() - soft_prob)) / soft_prob.size()[0] * (HyperParams.T**2)
+
+        #overall_loss += soft_targets_loss
+
+        # ce_loss = nn.functional.cross_entropy(soft_targets, soft_prob)
+        label_loss = self.ce_loss(student_outputs, labels)
+        loss = HyperParams.soft_target_loss_weight * soft_targets_loss + HyperParams.ce_loss_weight * label_loss
+
+        return loss, HyperParams.T
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Efficient DINO')
     parser.add_argument('--learning_rate', type=float, default=0.01, help='Initial learning rate.')
     parser.add_argument('--num_epochs', type=int, default=100, help='Number of epochs to run trainer.')
-    parser.add_argument('--batch_size', type=int, default=4, help='Batch size. Must divide evenly into the dataset sizes.')
+    parser.add_argument('--batch_size', type=int, default=24, help='Batch size. Must divide evenly into the dataset sizes.')
     parser.add_argument('--log_dir', type=str, default='DINO', help='Directory to put logging.')
     parser.add_argument('--mode', type=str, default="train", help='Type of mode: train or test')
     parser.add_argument('--dino_custom_model_weights', type=str, default="./weights/dinoxray/checkpoint.pth", help='DINO custom model weights')
@@ -90,14 +129,14 @@ if __name__ == "__main__":
     if os.path.exists(FLAGS.dino_custom_model_weights):
         state_dict = torch.load(FLAGS.dino_custom_model_weights, map_location=device)
         dinov1_model.load_state_dict(state_dict,strict=False)
-    '''
+    
     dataset = Caltech101Dataset(filter_label=None, preprocessin_fn=dinov1_model.dinov1_transform, subset="train", images_path=dataset_path, random_seed=43)
     test_dataset = Caltech101Dataset(filter_label=None, preprocessin_fn=dinov1_model.dinov1_transform, subset="test", images_path=dataset_path, random_seed=43)
+    
     '''
-
     dataset = ChestXRayDataset(img_preprocessing_fn=dinov1_model.dinov1_transform,rootPath=f"{FLAGS.dataset_root}/train")
     test_dataset = ChestXRayDataset(img_preprocessing_fn=dinov1_model.dinov1_transform,rootPath=f"{FLAGS.dataset_root}/test")  
-
+    '''
     sampler = torch.utils.data.DistributedSampler(dataset, shuffle=False)
     data_loader_train = torch.utils.data.DataLoader(
         dataset,
@@ -135,14 +174,14 @@ if __name__ == "__main__":
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
-    '''
+    
     dataset = Caltech101Dataset(filter_label=None, preprocessin_fn=transforms_tinyvit,subset="train", images_path=dataset_path, random_seed=43)
     test_dataset = Caltech101Dataset(filter_label=None, preprocessin_fn=transforms_tinyvit,subset="test", images_path=dataset_path, random_seed=43)
-    '''
     
+    '''
     dataset = ChestXRayDataset(img_preprocessing_fn=transforms_tinyvit,rootPath=f"{FLAGS.dataset_root}/train", inference_mode=False)
     test_dataset = ChestXRayDataset(img_preprocessing_fn=transforms_tinyvit,rootPath=f"{FLAGS.dataset_root}/test", inference_mode=False)
-
+    '''
     # Reassigning DINO features to dataset
     dataset.image_features = train_image_features 
     dataset.isDataTransformed = True # else image features will be empty
@@ -168,17 +207,22 @@ if __name__ == "__main__":
         pin_memory=True,
         drop_last=False,
     )
-    
+    '''
     class HyperParams:
         learning_rate=0.001
         T=2
         soft_target_loss_weight=0.25
         ce_loss_weight=0.75
+    '''
+    criterion = FeatureDistributionLoss(nepochs=FLAGS.num_epochs,
+                                        warmup_teacher_temp=HyperParams.warmup_teacher_temp,
+                                        teacher_temp=HyperParams.teacher_temp,
+                                        warmup_teacher_temp_epochs=HyperParams.warmup_teacher_temp_epochs)
 
     student_model = StudentTinyViT(num_classes=384, pretrained=True).to(device)  # Ensure the model is created with the pretrained flag
     student_model =student_model.to(device)
     ce_loss = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(student_model.parameters(), lr=HyperParams.learning_rate)
+    optimizer = optim.AdamW(student_model.parameters(), lr=HyperParams.learning_rate)
 
     best_val_loss = None
 
@@ -188,7 +232,7 @@ if __name__ == "__main__":
         student_model.train()
         for batch_idx, (img_f, labels, images, idx) in enumerate(data_loader_train):
             images = images.to(device)  # Move images to the correct device
-            #labels = labels["ClassId"]
+            labels = labels["ClassId"]
             labels = labels.to(device)  # Move labels to the correct device
             #labels = labels.reshape(4,1)
 
@@ -204,15 +248,16 @@ if __name__ == "__main__":
             #print("label size:", labels.size())
 
             #Soften the student logits by applying softmax first and log() second
-            soft_targets = nn.functional.softmax(teacher_logits / HyperParams.T, dim=-1).to(device)
-            soft_prob = nn.functional.log_softmax(student_logits / HyperParams.T, dim=-1).to(device) 
+            #soft_targets = nn.functional.softmax(teacher_logits / HyperParams.T, dim=-1).to(device)
+            #soft_prob = nn.functional.log_softmax(student_logits / HyperParams.T, dim=-1).to(device) 
 
             # Calculate the soft targets loss. Scaled by T**2 as suggested by the authors of the paper "Distilling the knowledge in a neural network"
-            soft_targets_loss = torch.sum(soft_targets * (soft_targets.log() - soft_prob)) / soft_prob.size()[0] * (HyperParams.T**2)
+            #soft_targets_loss = torch.sum(soft_targets * (soft_targets.log() - soft_prob)) / soft_prob.size()[0] * (HyperParams.T**2)
 
-            label_loss = ce_loss(student_logits, labels)
-            loss = HyperParams.soft_target_loss_weight * soft_targets_loss + HyperParams.ce_loss_weight * label_loss
-             # Update this if you use soft targets
+            #label_loss = ce_loss(student_logits, labels)
+            #loss = HyperParams.soft_target_loss_weight * soft_targets_loss + HyperParams.ce_loss_weight * label_loss
+            loss, T= criterion(student_logits, teacher_logits, epoch, labels)
+            # Update this if you use soft targets
             loss.backward()
             optimizer.step()
             running_loss += loss.item()
@@ -224,7 +269,7 @@ if __name__ == "__main__":
         test_loss = 0.0
         for batch_idx, (img_f, labels, images, idx) in enumerate(data_loader_test):
             images = images.to(device)
-            #labels = labels["ClassId"]
+            labels = labels["ClassId"]
             labels = labels.to(device)
             student_logits = student_model(images)
             label_loss = ce_loss(student_logits, labels)

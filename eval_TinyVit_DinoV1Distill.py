@@ -138,16 +138,16 @@ if __name__=="__main__":
 
     
     #Datasets_To_test = ["caltech101", "cifar10", "cifar100", "chestxray"]
-    Datasets_To_test = ["chestxray"]
+    Datasets_To_test = ["cifar100"]
     for selectedDataset in Datasets_To_test:
         if selectedDataset=="caltech101" :
             dataset = Caltech101Dataset(filter_label=None,images_path="./datasets/caltech101/101_ObjectCategories",preprocessin_fn=transforms_tinyvit,subset="train",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
             test_dataset = Caltech101Dataset(filter_label=None,images_path="./datasets/caltech101/101_ObjectCategories",preprocessin_fn=transforms_tinyvit,subset="test",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
         elif selectedDataset=="cifar10":
-            dataset = CIFAR10Dataset(root="./data/", preprocessin_fn=transforms_efficientnet,subset="train")
+            dataset = CIFAR10Dataset(root="./data/", preprocessin_fn=transforms_tinyvit,subset="train")
             test_dataset = CIFAR10Dataset(root="./data/", preprocessin_fn=transforms_tinyvit,subset="test")
         elif selectedDataset=="cifar100":
-            dataset = CIFAR100Dataset(root="./data/", preprocessin_fn=transforms_efficientnet,subset="train")
+            dataset = CIFAR100Dataset(root="./data/", preprocessin_fn=transforms_tinyvit,subset="train")
             test_dataset = CIFAR100Dataset(root="./data/", preprocessin_fn=transforms_tinyvit,subset="test")
         elif selectedDataset=="chestxray":
             dataset = ChestXRayDataset(img_preprocessing_fn=transforms_tinyvit,rootPath=f"{FLAGS.dataset_root}/train")
