@@ -61,7 +61,7 @@ if __name__=="__main__":
                         default=100,
                         help='Number of epochs to run trainer.')
     parser.add_argument('--batch_size',
-                        type=int, default=4,
+                        type=int, default=32,
                         help='Batch size. Must divide evenly into the dataset sizes.')
     parser.add_argument('--log_dir',
                         type=str,
@@ -77,11 +77,11 @@ if __name__=="__main__":
                         help='dino based model weights')
     parser.add_argument('--dino_custom_model_weights',
                         type=str,
-                        default="./weights/dinoxray/checkpoint.pth",
+                        default="./weights/dino_deitsmall8_pretrain_full_checkpoint.pth",
                         help='dino based model weights')
     parser.add_argument('--dataset_root',
                         type=str,
-                        default="./datasets/chest_xray",
+                        default="./datasets/caltech101/101_ObjectCategories",
                         help='dataset directory root')
     parser.add_argument('--dino_base_model_version',
                         type=str,
@@ -137,8 +137,8 @@ if __name__=="__main__":
     selectedDataset = FLAGS.dataset_to_use_for_distillation
 
     if selectedDataset=="caltech101" :
-        dataset = Caltech101Dataset(filter_label=None,images_path=f"{FLAGS.dataset_root}",preprocessin_fn=transformation_fn,subset="train",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
-        test_dataset = Caltech101Dataset(filter_label=None,images_path=f"{FLAGS.dataset_root}",preprocessin_fn=transformation_fn,subset="test",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
+        dataset = Caltech101Dataset(filter_label=None,images_path=f"{FLAGS.dataset_root}",preprocessin_fn=transformation_fn,subset="train",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT, isInferenceMode=False)
+        test_dataset = Caltech101Dataset(filter_label=None,images_path=f"{FLAGS.dataset_root}",preprocessin_fn=transformation_fn,subset="test",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT, isInferenceMode=False)
     elif selectedDataset=="cifar10":
         dataset = CIFAR10Dataset(root=f"{FLAGS.dataset_root}", preprocessin_fn=transformation_fn,subset="train")
         test_dataset = CIFAR10Dataset(root=f"{FLAGS.dataset_root}", preprocessin_fn=transformation_fn,subset="test")
@@ -195,8 +195,8 @@ if __name__=="__main__":
     ])
 
     if selectedDataset=="caltech101" :
-        dataset = Caltech101Dataset(filter_label=None,images_path=f"{FLAGS.dataset_root}",preprocessin_fn=transformation_fn,subset="train",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
-        test_dataset = Caltech101Dataset(filter_label=None,images_path=f"{FLAGS.dataset_root}",preprocessin_fn=transformation_fn,subset="test",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
+        dataset = Caltech101Dataset(filter_label=None,images_path=f"{FLAGS.dataset_root}",preprocessin_fn=transformation_fn,subset="train",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT, isInferenceMode=False)
+        test_dataset = Caltech101Dataset(filter_label=None,images_path=f"{FLAGS.dataset_root}",preprocessin_fn=transformation_fn,subset="test",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT, isInferenceMode=False)
     elif selectedDataset=="cifar10":
         dataset = CIFAR10Dataset(root=f"{FLAGS.dataset_root}", preprocessin_fn=transformation_fn,subset="train")
         test_dataset = CIFAR10Dataset(root=f"{FLAGS.dataset_root}", preprocessin_fn=transformation_fn,subset="test")
@@ -269,7 +269,7 @@ if __name__=="__main__":
             # Forward pass with the student model
             student_logits = student_model(image.to(device))
 
-            print(f"Student: {student_logits.size()} Teacher: {teacher_logits.size()} Label: {label.size()}")
+            # print(f"Student: {student_logits.size()} Teacher: {teacher_logits.size()} Label: {label.size()}")
 
 
             #Soften the student logits by applying softmax first and log() second

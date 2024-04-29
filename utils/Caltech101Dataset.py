@@ -14,12 +14,13 @@ from utils import utils
 import torch.distributed as dist
 # custom dataset class
 class Caltech101Dataset(Dataset):
-    def __init__(self, images_path, preprocessin_fn = None, filter_label=None, test_split=0.2, random_seed=43, subset="train"):
+    def __init__(self, images_path, preprocessin_fn = None, filter_label=None, test_split=0.2, random_seed=43, subset="train", isInferenceMode=True):
 
         image_paths = list(paths.list_images(images_path))
         self.str_labels = []
         self.images = []
         self.image_features = []
+        self.isInferenceMode = isInferenceMode
 
         for img_path in tqdm(image_paths):
             label = img_path.split(os.path.sep)[-2]
@@ -210,4 +211,7 @@ class Caltech101Dataset(Dataset):
         if self.isDataTransformed:
             img_features = self.image_features[idx]
 
-        return img_features,{"ClassName": LabelClassName, "ClassId": LabelClasId},image, idx
+        if self.isInferenceMode:
+            return img_features,{"ClassName": LabelClassName, "ClassId": LabelClasId},image, idx
+        else:
+            return img_features,LabelClasId,image, idx

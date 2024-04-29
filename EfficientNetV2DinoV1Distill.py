@@ -138,8 +138,8 @@ if __name__=="__main__":
     selectedDataset = FLAGS.dataset_to_use_for_distillation
 
     if selectedDataset=="caltech101" :
-        dataset = Caltech101Dataset(filter_label=None,images_path=f"{FLAGS.dataset_root}",preprocessin_fn=transformation_fn,subset="train",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
-        test_dataset = Caltech101Dataset(filter_label=None,images_path=f"{FLAGS.dataset_root}",preprocessin_fn=transformation_fn,subset="test",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
+        dataset = Caltech101Dataset(filter_label=None,images_path=f"{FLAGS.dataset_root}",preprocessin_fn=transformation_fn,subset="train",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT, isInferenceMode=False)
+        test_dataset = Caltech101Dataset(filter_label=None,images_path=f"{FLAGS.dataset_root}",preprocessin_fn=transformation_fn,subset="test",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT, isInferenceMode=False)
     elif selectedDataset=="cifar10":
         dataset = CIFAR10Dataset(root=f"{FLAGS.dataset_root}", preprocessin_fn=transformation_fn,subset="train")
         test_dataset = CIFAR10Dataset(root=f"{FLAGS.dataset_root}", preprocessin_fn=transformation_fn,subset="test")
@@ -196,8 +196,8 @@ if __name__=="__main__":
     ])
 
     if selectedDataset=="caltech101" :
-        dataset = Caltech101Dataset(filter_label=None,images_path=f"{FLAGS.dataset_root}",preprocessin_fn=transformation_fn,subset="train",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
-        test_dataset = Caltech101Dataset(filter_label=None,images_path=f"{FLAGS.dataset_root}",preprocessin_fn=transformation_fn,subset="test",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
+        dataset = Caltech101Dataset(filter_label=None,images_path=f"{FLAGS.dataset_root}",preprocessin_fn=transformation_fn,subset="train",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT, isInferenceMode=False)
+        test_dataset = Caltech101Dataset(filter_label=None,images_path=f"{FLAGS.dataset_root}",preprocessin_fn=transformation_fn,subset="test",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT, isInferenceMode=False)
     elif selectedDataset=="cifar10":
         dataset = CIFAR10Dataset(root=f"{FLAGS.dataset_root}", preprocessin_fn=transformation_fn,subset="train")
         test_dataset = CIFAR10Dataset(root=f"{FLAGS.dataset_root}", preprocessin_fn=transformation_fn,subset="test")
