@@ -47,28 +47,6 @@ class StudentModel(nn.Module):
         x = self.efficientnet(x)
         return x
 
-# Define the student model for knowledge distillation
-class StudentModel(nn.Module):
-    def __init__(self, num_features=384):
-        super(StudentModel, self).__init__()
-        self.efficientnet = models.efficientnet_b0(weights=None)
-        # self.efficientnet.classifier[-1].out_features = num_features
-        self.efficientnet.classifier = torch.nn.Sequential(
-            nn.Dropout(p=0.2, inplace=True),
-            nn.Linear(in_features=1280, out_features=num_features, bias=True)
-        )
-        """
-        self.efficientnet.classifier =  Sequential(
-        (0): Dropout(p=0.2, inplace=True)
-        (1): Linear(in_features=1280, out_features=1000, bias=True) # Replaced 1000 by 384
-        )
-        """
-
-    def forward(self, x):
-        x = self.efficientnet(x)
-        return x
-    
-
 if __name__=="__main__":
 
 
@@ -101,7 +79,7 @@ if __name__=="__main__":
                         help='dino based model weights')
     parser.add_argument('--efficient_distilled_model_weights',
                         type=str,
-                        default="./weights/dinoxray/student_model_efficientnetb0_best_test_loss.pth",
+                        default="./weights/student_model_efficientnetb0_base_dino_v2_ds_caltech101_best_test_loss.pth",
                         help='efficient distilled model weights')
     parser.add_argument('--dataset_root',
                         type=str,

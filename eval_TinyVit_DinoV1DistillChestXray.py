@@ -1,21 +1,26 @@
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import argparse
+from torchvision import datasets, transforms
+from torchvision import models
+from utils.DinoModel import DinoModel, dino_args
+from utils.ChestXRayDataset import ChestXRayDataset
 from utils.Caltech101Dataset import Caltech101Dataset
 from utils.CIFAR100Dataset import CIFAR100Dataset
 from utils.CIFAR10Dataset import CIFAR10Dataset
-from utils.StanfordcarsDataset import StanfordCarsDataset
-from utils.ChestXRayDataset import ChestXRayDataset
 from utils import utils
-from utils.DinoModel import DinoModel, dino_args
 from utils.utils import NpEncoder
-import torch
-import argparse
-import time 
-import faiss
-import numpy as np
-import json
+import time
 import os
-    
+import json
+import numpy as np
+import faiss
+# from TinyViT.models.tiny_vit import _create_tiny_vit 
+from TinyViT.models.tiny_vit import tiny_vit_5m_224  # Directly import the specific model function
 
-def initDinoV1Model(model_to_load, FLAGS, checkpoint_key="teacher", use_back_bone_only=False):
+
+def initDinoV1Model(model_to_load, FLAGS, checkpoint_key="teacher", use_back_bone_only=True):
     dino_args.pretrained_weights = model_to_load
     dino_args.output_dir = FLAGS.log_dir
     dino_args.checkpoint_key = checkpoint_key
@@ -24,6 +29,22 @@ def initDinoV1Model(model_to_load, FLAGS, checkpoint_key="teacher", use_back_bon
     dinov1_model.eval()
     return dinov1_model
 
+# Define the student model for knowledge distillation
+class StudentTinyViT(nn.Module):
+    def __init__(self, num_classes=384, pretrained=False):
+        super(StudentTinyViT, self).__init__()
+        # Directly create an instance of tiny_vit_5m_224
+        self.tinyvit = tiny_vit_5m_224(pretrained=False)
+        # Access the appropriate attribute for the number of in_features
+        num_features = self.tinyvit.head.in_features
+        # Replace the classifier head with a new one suited to your number of classes
+        self.tinyvit.head = nn.Sequential(
+            nn.Dropout(p=0.2, inplace=True),
+            nn.Linear(num_features, num_classes)
+        )
+
+    def forward(self, x):
+        return self.tinyvit(x)
 
 if __name__=="__main__":
 
@@ -37,11 +58,11 @@ if __name__=="__main__":
                         default=100,
                         help='Number of epochs to run trainer.')
     parser.add_argument('--batch_size',
-                        type=int, default=32,
+                        type=int, default=16,
                         help='Batch size. Must divide evenly into the dataset sizes.')
     parser.add_argument('--log_dir',
                         type=str,
-                        default='DINO',
+                        default='DINO/TinyVit_DinoV1',
                         help='Directory to put logging.')
     parser.add_argument('--mode',
                         type=str,
@@ -53,8 +74,16 @@ if __name__=="__main__":
                         help='dino based model weights')
     parser.add_argument('--dino_custom_model_weights',
                         type=str,
-                        default="./weights/dino_deitsmall8_pretrain_full_checkpoint.pth",
+                        default="./weights/dinoxray/checkpoint.pth",
                         help='dino based model weights')
+    parser.add_argument('--tinyvit_distilled_model_weights',
+                        type=str,
+                        default="./weights/dinoxray/chestxray_v1student_model_tinyvit_best_test_loss.pth",
+                        help='tinyvit distilled model weights')
+    parser.add_argument('--dataset_root',
+                        type=str,
+                        default="./datasets/chest_xray",
+                        help='dataset directory root')
     parser.add_argument('--search_gallery',
                         type=str,
                         default="train",
@@ -64,46 +93,64 @@ if __name__=="__main__":
                         default=5,
                         help='Top-k paramter, defaults to 5')
     parser.add_argument('--seed', default=0, type=int, help='Random seed.')
-    parser.add_argument('--num_workers', default=4, type=int, help='Number of data loading workers per GPU.')
+    parser.add_argument('--num_workers', default=1, type=int, help='Number of data loading workers per GPU.')
     parser.add_argument("--dist_url", default="env://", type=str, help="""url used to set up
         distributed training; see https://pytorch.org/docs/stable/distributed.html""")
     parser.add_argument("--local_rank", default=0, type=int, help="Please ignore and do not set this argument.")
+
 
     FLAGS = None
     FLAGS, unparsed = parser.parse_known_args()
     print(FLAGS)
 
+    
+
     utils.init_distributed_mode(args=FLAGS)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(device)
+    os.makedirs(f"{FLAGS.log_dir}/output", exist_ok=True)
 
     TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL = 0.7
     SEED_FOR_RANDOM_SPLIT = 43
 
+    # Load DINOv1 model (you need to replace this with your own DINOv2 model)
+    # dinov1_model = initDinoV1Model(model_to_load=FLAGS.dino_custom_model_weights,FLAGS=FLAGS,checkpoint_key="teacher", use_back_bone_only=True)
+    # dinov1_model.to(device)
 
-    # Datasets_To_test = ["caltech101", "cifar10", "cifar100", "chestxray"]
-    # Datasets_To_test = ["chestxray", "cifar100", "cifar10"]
-    Datasets_To_test = ["chestxray"]
-    # Datasets_To_test = ["caltech101", "cifar10", "cifar100", "stanfordcars"]
-    # dinov1_model = initDinoV1Model(model_to_load=FLAGS.dino_base_model_weights,FLAGS=FLAGS,checkpoint_key="teacher")
-    dinov1_model = initDinoV1Model(model_to_load=FLAGS.dino_custom_model_weights,FLAGS=FLAGS,checkpoint_key="teacher", use_back_bone_only=True)
+    # Initialize the student model
+    student_model = StudentTinyViT(num_classes=384)
+    student_model.to(device)
+
+    if os.path.exists(FLAGS.tinyvit_distilled_model_weights):
+        tinyvit_weights = torch.load(FLAGS.tinyvit_distilled_model_weights)
+        student_model.load_state_dict(state_dict=tinyvit_weights)
+        print(f"Weights loaded from: {FLAGS.tinyvit_distilled_model_weights}")
+    else:
+        print(f"[ERROR] Weights {FLAGS.tinyvit_distilled_model_weights} not found!!")
+
+
+    # Reinit dataset for TinyVit
+    transforms_tinyvit = transforms.Compose([
+        transforms.Resize((224, 224), interpolation=transforms.InterpolationMode.BICUBIC),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    ])
 
     
+    Datasets_To_test = ["caltech101", "cifar10", "cifar100", "chestxray"]
     for selectedDataset in Datasets_To_test:
         if selectedDataset=="caltech101" :
-            dataset = Caltech101Dataset(filter_label=None,images_path="./datasets/caltech101/101_ObjectCategories",preprocessin_fn=dinov1_model.dinov1_transform,subset="train",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
-            test_dataset = Caltech101Dataset(filter_label=None,images_path="./datasets/caltech101/101_ObjectCategories",preprocessin_fn=dinov1_model.dinov1_transform,subset="test",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
+            dataset = Caltech101Dataset(filter_label=None,images_path="./datasets/caltech101/101_ObjectCategories",preprocessin_fn=transforms_tinyvit,subset="train",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
+            test_dataset = Caltech101Dataset(filter_label=None,images_path="./datasets/caltech101/101_ObjectCategories",preprocessin_fn=transforms_tinyvit,subset="test",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
         elif selectedDataset=="cifar10":
-            dataset = CIFAR10Dataset(root="./data/", preprocessin_fn=dinov1_model.dinov1_transform,subset="train")
-            test_dataset = CIFAR10Dataset(root="./data/", preprocessin_fn=dinov1_model.dinov1_transform,subset="test")
+            dataset = CIFAR10Dataset(root="./data/", preprocessin_fn=transforms_tinyvit,subset="train")
+            test_dataset = CIFAR10Dataset(root="./data/", preprocessin_fn=transforms_tinyvit,subset="test")
         elif selectedDataset=="cifar100":
-            dataset = CIFAR100Dataset(root="./data/", preprocessin_fn=dinov1_model.dinov1_transform,subset="train")
-            test_dataset = CIFAR100Dataset(root="./data/", preprocessin_fn=dinov1_model.dinov1_transform,subset="test")
+            dataset = CIFAR100Dataset(root="./data/", preprocessin_fn=transforms_tinyvit,subset="train")
+            test_dataset = CIFAR100Dataset(root="./data/", preprocessin_fn=transforms_tinyvit,subset="test")
         elif selectedDataset=="chestxray":
-            dataset = ChestXRayDataset(img_preprocessing_fn=dinov1_model.dinov1_transform,rootPath="./datasets/chest_xray/train")
-            test_dataset = ChestXRayDataset(img_preprocessing_fn=dinov1_model.dinov1_transform,rootPath="./datasets/chest_xray/test")
-        elif selectedDataset=="stanfordcars":
-            dataset = StanfordCarsDataset(root="./data/", preprocessing_fn=dinov1_model.dinov1_transform,subset="train")
-            test_dataset = StanfordCarsDataset(root="./data/", preprocessing_fn=dinov1_model.dinov1_transform,subset="test")
-
+            dataset = ChestXRayDataset(img_preprocessing_fn=transforms_tinyvit,rootPath=f"{FLAGS.dataset_root}/train")
+            test_dataset = ChestXRayDataset(img_preprocessing_fn=transforms_tinyvit,rootPath=f"{FLAGS.dataset_root}/test")
 
         
         output_dir = f"{FLAGS.log_dir}/Dataset_{selectedDataset}"
@@ -111,8 +158,6 @@ if __name__=="__main__":
 
         with open(f'{output_dir}/commandline_args.txt', 'w') as f:
             json.dump(FLAGS.__dict__, f, indent=2)
-
-    
 
         sampler = torch.utils.data.DistributedSampler(dataset, shuffle=False)
         data_loader_train = torch.utils.data.DataLoader(
@@ -134,9 +179,8 @@ if __name__=="__main__":
 
         time_t0 = time.perf_counter()
 
-        dataset.extract_features(dinov1_model,data_loader=data_loader_train)
-        test_dataset.extract_features(dinov1_model,data_loader=data_loader_query)
-
+        dataset.extract_features(student_model,data_loader=data_loader_train)
+        test_dataset.extract_features(student_model,data_loader=data_loader_query)
 
         print(f"Train : {len(dataset)}  features: {len(dataset.image_features)}")
         print(f"Test : {len(test_dataset)}  features: {len(test_dataset.image_features)}")
@@ -306,5 +350,3 @@ if __name__=="__main__":
         csv_file.close()
         
         print(f"Completed in : {time_tn-time_t0:.2f}")
-
-

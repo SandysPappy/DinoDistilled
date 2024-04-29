@@ -31,7 +31,7 @@ def initDinoV1Model(model_to_load, FLAGS, checkpoint_key="teacher", use_back_bon
 class StudentModel(nn.Module):
     def __init__(self, num_features=384):
         super(StudentModel, self).__init__()
-        self.efficientnet = models.efficientnet_b0(weights=None)
+        self.efficientnet = models.efficientnet_v2_s(weights=None)
         # self.efficientnet.classifier[-1].out_features = num_features
         self.efficientnet.classifier = torch.nn.Sequential(
             nn.Dropout(p=0.2, inplace=True),
@@ -99,7 +99,7 @@ if __name__=="__main__":
                         help='dino based model weights')
     parser.add_argument('--efficient_distilled_model_weights',
                         type=str,
-                        default="./weights/best_model_epoch_15_effiv2.pth",
+                        default="./weights/best_model_epoch_39_effiv2_dinov2.pth",
                         help='efficient distilled model weights')
     parser.add_argument('--dataset_root',
                         type=str,
@@ -141,20 +141,20 @@ if __name__=="__main__":
     # Initialize the student model
     student_model = EfficientNetV2Embeddings(output_dim=384)
     # student_model = StudentModel(num_features=384)  # dinov1 small
-    student_model.to(device)
-
     if os.path.exists(FLAGS.efficient_distilled_model_weights):
-        efficient_weights = torch.load(FLAGS.efficient_distilled_model_weights)
+        efficient_weights = torch.load(FLAGS.efficient_distilled_model_weights, map_location="cpu")
         student_model.load_state_dict(state_dict=efficient_weights)
         print(f"Weights loaded from: {FLAGS.efficient_distilled_model_weights}")
     else:
         print(f"[ERROR] Weights {FLAGS.efficient_distilled_model_weights} not found!!")
 
+    student_model.to(device)
+
 
     # Reinit dataset for EfficientNet
     transforms_efficientnet = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Resize(256),       
+        transforms.Resize(256, antialias=True),       
         transforms.CenterCrop(224),  
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),  
     ])

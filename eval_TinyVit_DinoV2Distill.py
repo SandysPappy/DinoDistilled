@@ -4,71 +4,43 @@ import torch.optim as optim
 import argparse
 from torchvision import datasets, transforms
 from torchvision import models
-from utils.DinoModel import DinoModel, dino_args
-from utils.ChestXRayDataset import ChestXRayDataset
-from utils.Caltech101Dataset import Caltech101Dataset
-from utils.CIFAR100Dataset import CIFAR100Dataset
-from utils.CIFAR10Dataset import CIFAR10Dataset
-from utils import utils
-from utils.utils import NpEncoder
+from myutils.DinoModel import DinoModel, dino_args
+from myutils.ChestXRayDataset import ChestXRayDataset
+from myutils.Caltech101Dataset import Caltech101Dataset
+from myutils.CIFAR100Dataset import CIFAR100Dataset
+from myutils.CIFAR10Dataset import CIFAR10Dataset
+from myutils import utils
+from myutils.utils import NpEncoder
 import time
 import os
 import json
 import numpy as np
 import faiss
-import timm
+from TinyViT.models.tiny_vit import _create_tiny_vit 
+from TinyViT.models.tiny_vit import tiny_vit_5m_224  # Directly import the specific model function
 
-def initDinoV1Model(model_to_load, FLAGS, checkpoint_key="teacher", use_back_bone_only=False):
-    dino_args.pretrained_weights = model_to_load
-    dino_args.output_dir = FLAGS.log_dir
-    dino_args.checkpoint_key = checkpoint_key
-    dino_args.use_cuda = torch.cuda.is_available()
-    dinov1_model = DinoModel(dino_args, use_only_backbone=use_back_bone_only)
-    dinov1_model.eval()
-    return dinov1_model
+def initDinoV2Model(model="dino_vits8"):
+    dinov2_model = torch.hub.load("facebookresearch/dino", model)
+    return dinov2_model
 
-# Define the student model for knowledge distillation
-class StudentModel(nn.Module):
-    def __init__(self, num_features=384):
-        super(StudentModel, self).__init__()
-        self.efficientnet = models.efficientnet_b0(weights=None)
-        # self.efficientnet.classifier[-1].out_features = num_features
-        self.efficientnet.classifier = torch.nn.Sequential(
+
+from TinyViT.models.tiny_vit import tiny_vit_5m_224 
+
+class StudentTinyViT(nn.Module):
+    def __init__(self, num_classes=384, pretrained=False):
+        super(StudentTinyViT, self).__init__()
+        # Directly create an instance of tiny_vit_5m_224
+        self.tinyvit = tiny_vit_5m_224(pretrained=False)
+        # Access the appropriate attribute for the number of in_features
+        num_features = self.tinyvit.head.in_features
+        # Replace the classifier head with a new one suited to your number of classes
+        self.tinyvit.head = nn.Sequential(
             nn.Dropout(p=0.2, inplace=True),
-            nn.Linear(in_features=1280, out_features=num_features, bias=True)
+            nn.Linear(num_features, num_classes)
         )
-        """
-        self.efficientnet.classifier =  Sequential(
-        (0): Dropout(p=0.2, inplace=True)
-        (1): Linear(in_features=1280, out_features=1000, bias=True) # Replaced 1000 by 384
-        )
-        """
 
     def forward(self, x):
-        x = self.efficientnet(x)
-        return x
-
-# Define the student model for knowledge distillation
-class StudentModel(nn.Module):
-    def __init__(self, num_features=384):
-        super(StudentModel, self).__init__()
-        self.efficientnet = models.efficientnet_v2_s(weights=None)
-        # self.efficientnet.classifier[-1].out_features = num_features
-        self.efficientnet.classifier = torch.nn.Sequential(
-            nn.Dropout(p=0.2, inplace=True),
-            nn.Linear(in_features=1280, out_features=num_features, bias=True)
-        )
-        """
-        self.efficientnet.classifier =  Sequential(
-        (0): Dropout(p=0.2, inplace=True)
-        (1): Linear(in_features=1280, out_features=1000, bias=True) # Replaced 1000 by 384
-        )
-        """
-
-    def forward(self, x):
-        x = self.efficientnet(x)
-        return x
-    
+        return self.tinyvit(x)
 
 if __name__=="__main__":
 
@@ -86,7 +58,7 @@ if __name__=="__main__":
                         help='Batch size. Must divide evenly into the dataset sizes.')
     parser.add_argument('--log_dir',
                         type=str,
-                        default='DINO',
+                        default='DINO/TinyVit_DinoV2',
                         help='Directory to put logging.')
     parser.add_argument('--mode',
                         type=str,
@@ -100,10 +72,10 @@ if __name__=="__main__":
                         type=str,
                         default="./weights/dinoxray/checkpoint.pth",
                         help='dino based model weights')
-    parser.add_argument('--efficient_distilled_model_weights',
+    parser.add_argument('--tinyvit_distilled_model_weights',
                         type=str,
-                        default="./weights/dinoxray/chestxray_student_model_efficientnetv2_best_test_loss.pth",
-                        help='efficient distilled model weights')
+                        default="./DINO/output/v2student_model_tinyvit_best_test_loss.pth",
+                        help='tinyvit distilled model weights')
     parser.add_argument('--dataset_root',
                         type=str,
                         default="./datasets/chest_xray",
@@ -117,7 +89,7 @@ if __name__=="__main__":
                         default=5,
                         help='Top-k paramter, defaults to 5')
     parser.add_argument('--seed', default=0, type=int, help='Random seed.')
-    parser.add_argument('--num_workers', default=4, type=int, help='Number of data loading workers per GPU.')
+    parser.add_argument('--num_workers', default=1, type=int, help='Number of data loading workers per GPU.')
     parser.add_argument("--dist_url", default="env://", type=str, help="""url used to set up
         distributed training; see https://pytorch.org/docs/stable/distributed.html""")
     parser.add_argument("--local_rank", default=0, type=int, help="Please ignore and do not set this argument.")
@@ -142,41 +114,40 @@ if __name__=="__main__":
     # dinov1_model.to(device)
 
     # Initialize the student model
-    # student_model = StudentModel(output_dim=384)
-    student_model = StudentModel(num_features=384)  # dinov1 small
+    student_model = StudentTinyViT(num_classes=384)
     student_model.to(device)
 
-    if os.path.exists(FLAGS.efficient_distilled_model_weights):
-        efficient_weights = torch.load(FLAGS.efficient_distilled_model_weights)
-        student_model.load_state_dict(state_dict=efficient_weights)
-        print(f"Weights loaded from: {FLAGS.efficient_distilled_model_weights}")
+    if os.path.exists(FLAGS.tinyvit_distilled_model_weights):
+        tinyvit_weights = torch.load(FLAGS.tinyvit_distilled_model_weights)
+        student_model.load_state_dict(state_dict=tinyvit_weights)
+        print(f"Weights loaded from: {FLAGS.tinyvit_distilled_model_weights}")
     else:
-        print(f"[ERROR] Weights {FLAGS.efficient_distilled_model_weights} not found!!")
+        print(f"[ERROR] Weights {FLAGS.tinyvit_distilled_model_weights} not found!!")
 
 
-    # Reinit dataset for EfficientNet
-    transforms_efficientnet = transforms.Compose([
+    # Reinit dataset for TinyVit
+    transforms_tinyvit = transforms.Compose([
+        transforms.Resize((224, 224), interpolation=transforms.InterpolationMode.BICUBIC),
         transforms.ToTensor(),
-        transforms.Resize(256, antialias=True),       
-        transforms.CenterCrop(224),  
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),  
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
-    
-    Datasets_To_test = ["caltech101", "cifar10", "cifar100", "chestxray"]
 
+    
+    #Datasets_To_test = ["caltech101", "cifar10", "cifar100", "chestxray"]
+    Datasets_To_test = ["caltech101"]
     for selectedDataset in Datasets_To_test:
         if selectedDataset=="caltech101" :
-            dataset = Caltech101Dataset(filter_label=None,images_path="./datasets/caltech101/101_ObjectCategories",preprocessin_fn=transforms_efficientnet,subset="train",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
-            test_dataset = Caltech101Dataset(filter_label=None,images_path="./datasets/caltech101/101_ObjectCategories",preprocessin_fn=transforms_efficientnet,subset="test",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
+            dataset = Caltech101Dataset(filter_label=None,images_path="./datasets/caltech101/101_ObjectCategories",preprocessin_fn=transforms_tinyvit,subset="train",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
+            test_dataset = Caltech101Dataset(filter_label=None,images_path="./datasets/caltech101/101_ObjectCategories",preprocessin_fn=transforms_tinyvit,subset="test",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
         elif selectedDataset=="cifar10":
             dataset = CIFAR10Dataset(root="./data/", preprocessin_fn=transforms_efficientnet,subset="train")
-            test_dataset = CIFAR10Dataset(root="./data/", preprocessin_fn=transforms_efficientnet,subset="test")
+            test_dataset = CIFAR10Dataset(root="./data/", preprocessin_fn=transforms_tinyvit,subset="test")
         elif selectedDataset=="cifar100":
             dataset = CIFAR100Dataset(root="./data/", preprocessin_fn=transforms_efficientnet,subset="train")
-            test_dataset = CIFAR100Dataset(root="./data/", preprocessin_fn=transforms_efficientnet,subset="test")
+            test_dataset = CIFAR100Dataset(root="./data/", preprocessin_fn=transforms_tinyvit,subset="test")
         elif selectedDataset=="chestxray":
             dataset = ChestXRayDataset(img_preprocessing_fn=transforms_efficientnet,rootPath=f"{FLAGS.dataset_root}/train")
-            test_dataset = ChestXRayDataset(img_preprocessing_fn=transforms_efficientnet,rootPath=f"{FLAGS.dataset_root}/test")
+            test_dataset = ChestXRayDataset(img_preprocessing_fn=transforms_tinyvit,rootPath=f"{FLAGS.dataset_root}/test")
 
         
         output_dir = f"{FLAGS.log_dir}/Dataset_{selectedDataset}"
