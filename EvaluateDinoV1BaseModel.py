@@ -53,7 +53,7 @@ if __name__=="__main__":
                         help='dino based model weights')
     parser.add_argument('--dino_custom_model_weights',
                         type=str,
-                        default="./weights/dinoxray/checkpoint.pth",
+                        default="./weights/dino_deitsmall8_pretrain_full_checkpoint.pth",
                         help='dino based model weights')
     parser.add_argument('--search_gallery',
                         type=str,
