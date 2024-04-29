@@ -5,11 +5,17 @@ import argparse
 from torchvision import datasets, transforms
 from torchvision import models
 from utils.DinoModel import DinoModel, dino_args
+from utils.Caltech101Dataset import Caltech101Dataset
+from utils.CIFAR100Dataset import CIFAR100Dataset
+from utils.CIFAR10Dataset import CIFAR10Dataset
 from utils.ChestXRayDataset import ChestXRayDataset
 from utils import utils
 import time
 import os
 
+def initDinoV2Model(model= "dinov2_vits14"):
+    dinov2_vits14 = torch.hub.load("facebookresearch/dinov2", model)
+    return dinov2_vits14
 
 def initDinoV1Model(model_to_load, FLAGS, checkpoint_key="teacher", use_back_bone_only=False):
     dino_args.pretrained_weights = model_to_load
@@ -73,6 +79,14 @@ if __name__=="__main__":
                         type=str,
                         default="./weights/dinoxray/checkpoint.pth",
                         help='dino based model weights')
+    parser.add_argument('--dino_base_model_version',
+                        type=str,
+                        default="v1",
+                        help='dino base model to use v1 or v2')
+    parser.add_argument('--dataset_to_use_for_distillation',
+                        type=str,
+                        default="caltech101",
+                        help='dataset to use for distillation [caltech101,cifar10,cifar100,chestxray]')
     parser.add_argument('--dataset_root',
                         type=str,
                         default="./datasets/chest_xray",
@@ -106,12 +120,38 @@ if __name__=="__main__":
     TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL = 0.7
     SEED_FOR_RANDOM_SPLIT = 43
 
-    # Load DINOv1 model (you need to replace this with your own DINOv2 model)
-    dinov1_model = initDinoV1Model(model_to_load=FLAGS.dino_custom_model_weights,FLAGS=FLAGS,checkpoint_key="teacher", use_back_bone_only=True)
-    dinov1_model.to(device)
+    dino_model = None
+    transformation_fn = None
+    if FLAGS.dino_base_model_version=="v1":
+        dino_model = initDinoV1Model(model_to_load=FLAGS.dino_custom_model_weights,FLAGS=FLAGS,checkpoint_key="teacher", use_back_bone_only=True).to(device)
+        transformation_fn = dino_model.dinov1_transform
+    elif FLAGS.dino_base_model_version=="v2":
+        dino_model = initDinoV2Model(model="dinov2_vits14").to(device)
+        transformation_fn = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Resize(256, antialias=True),       
+            transforms.CenterCrop(224),  
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),  
+        ])
 
-    dataset = ChestXRayDataset(img_preprocessing_fn=dinov1_model.dinov1_transform,rootPath=f"{FLAGS.dataset_root}/train")
-    test_dataset = ChestXRayDataset(img_preprocessing_fn=dinov1_model.dinov1_transform,rootPath=f"{FLAGS.dataset_root}/test")
+
+    selectedDataset = FLAGS.dataset_to_use_for_distillation
+
+    if selectedDataset=="caltech101" :
+        dataset = Caltech101Dataset(filter_label=None,images_path=f"{FLAGS.dataset_root}",preprocessin_fn=transformation_fn,subset="train",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
+        test_dataset = Caltech101Dataset(filter_label=None,images_path=f"{FLAGS.dataset_root}",preprocessin_fn=transformation_fn,subset="test",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
+    elif selectedDataset=="cifar10":
+        dataset = CIFAR10Dataset(root=f"{FLAGS.dataset_root}", preprocessin_fn=transformation_fn,subset="train")
+        test_dataset = CIFAR10Dataset(root=f"{FLAGS.dataset_root}", preprocessin_fn=transformation_fn,subset="test")
+    elif selectedDataset=="cifar100":
+        dataset = CIFAR100Dataset(root=f"{FLAGS.dataset_root}", preprocessin_fn=transformation_fn,subset="train")
+        test_dataset = CIFAR100Dataset(root=f"{FLAGS.dataset_root}", preprocessin_fn=transformation_fn,subset="test")
+    elif selectedDataset=="chestxray":
+        dataset = ChestXRayDataset(img_preprocessing_fn=transformation_fn,rootPath=f"{FLAGS.dataset_root}/train")
+        test_dataset = ChestXRayDataset(img_preprocessing_fn=transformation_fn,rootPath=f"{FLAGS.dataset_root}/test")
+
+    # dataset = ChestXRayDataset(img_preprocessing_fn=dinov1_model.dinov1_transform,rootPath=f"{FLAGS.dataset_root}/train")
+    # test_dataset = ChestXRayDataset(img_preprocessing_fn=dinov1_model.dinov1_transform,rootPath=f"{FLAGS.dataset_root}/test")
 
     sampler = torch.utils.data.DistributedSampler(dataset, shuffle=False)
     data_loader_train = torch.utils.data.DataLoader(
@@ -136,8 +176,8 @@ if __name__=="__main__":
     """
     time_t0 = time.perf_counter()
 
-    dataset.extract_features(dinov1_model,data_loader=data_loader_train)
-    test_dataset.extract_features(dinov1_model,data_loader=data_loader_query)
+    dataset.extract_features(dino_model,data_loader=data_loader_train)
+    test_dataset.extract_features(dino_model,data_loader=data_loader_query)
 
     time_t1 = time.perf_counter()
 
@@ -149,14 +189,26 @@ if __name__=="__main__":
 
 
     # Reinit dataset for EfficientNet
-    transforms_efficientnet = transforms.Compose([
+    transformation_fn = transforms.Compose([
         transforms.Resize((224,224), antialias=True), 
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
     ])
 
-    dataset = ChestXRayDataset(img_preprocessing_fn=transforms_efficientnet,rootPath=f"{FLAGS.dataset_root}/train", inference_mode=False)
-    test_dataset = ChestXRayDataset(img_preprocessing_fn=transforms_efficientnet,rootPath=f"{FLAGS.dataset_root}/test", inference_mode=False)
+    if selectedDataset=="caltech101" :
+        dataset = Caltech101Dataset(filter_label=None,images_path=f"{FLAGS.dataset_root}",preprocessin_fn=transformation_fn,subset="train",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
+        test_dataset = Caltech101Dataset(filter_label=None,images_path=f"{FLAGS.dataset_root}",preprocessin_fn=transformation_fn,subset="test",test_split=TEST_SPLIT_FOR_ZERO_SHOT_RETRIEVAL, random_seed=SEED_FOR_RANDOM_SPLIT)
+    elif selectedDataset=="cifar10":
+        dataset = CIFAR10Dataset(root=f"{FLAGS.dataset_root}", preprocessin_fn=transformation_fn,subset="train")
+        test_dataset = CIFAR10Dataset(root=f"{FLAGS.dataset_root}", preprocessin_fn=transformation_fn,subset="test")
+    elif selectedDataset=="cifar100":
+        dataset = CIFAR100Dataset(root=f"{FLAGS.dataset_root}", preprocessin_fn=transformation_fn,subset="train")
+        test_dataset = CIFAR100Dataset(root=f"{FLAGS.dataset_root}", preprocessin_fn=transformation_fn,subset="test")
+    elif selectedDataset=="chestxray":
+        dataset = ChestXRayDataset(img_preprocessing_fn=transformation_fn,rootPath=f"{FLAGS.dataset_root}/train")
+        test_dataset = ChestXRayDataset(img_preprocessing_fn=transformation_fn,rootPath=f"{FLAGS.dataset_root}/test")
+    # dataset = ChestXRayDataset(img_preprocessing_fn=transforms_efficientnet,rootPath=f"{FLAGS.dataset_root}/train", inference_mode=False)
+    # test_dataset = ChestXRayDataset(img_preprocessing_fn=transforms_efficientnet,rootPath=f"{FLAGS.dataset_root}/test", inference_mode=False)
 
     # Reassign DINO features to dataset
     dataset.image_features = train_image_features 
@@ -255,10 +307,10 @@ if __name__=="__main__":
             best_val_loss = current_test_loss
         else:
             if current_test_loss<best_val_loss:
-                torch.save(student_model.state_dict(), f"{FLAGS.log_dir}/output/student_model_efficientnetv2_best_test_loss.pth")
+                torch.save(student_model.state_dict(), f"{FLAGS.log_dir}/output/student_model_efficientnetb0_base_dino_{FLAGS.dino_base_model_version}_ds_{FLAGS.dataset_to_use_for_distillation}_best_test_loss.pth")
         
         print(f"EPOCH[{epoch}] Train loss: {current_train_loss} Test loss: {current_test_loss}")
 
     # Save the trained student model
-    torch.save(student_model.state_dict(), f"{FLAGS.log_dir}/output/student_model_efficientnetv2_final.pth")
+    torch.save(student_model.state_dict(), f"{FLAGS.log_dir}/output/student_model_efficientnetb0_base_dino_{FLAGS.dino_base_model_version}_ds_{FLAGS.dataset_to_use_for_distillation}_final.pth")
     print("Student model trained and saved.")
